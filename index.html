@@ -1993,7 +1993,19 @@ async function gsFRFBoth(){
     const ry=await gsQuery(yid+' FRF? '+ax);
     if((rx.includes('=1')||rx.trim()==='1')&&(ry.includes('=1')||ry.trim()==='1')) break;
   }
-  lg('sys','GS','Both axes referenced (homed) — ready to set as grid centroid origin');
+  lg('sys','GS','Both axes referenced (homed)');
+  // read current positions and set as origin
+  await new Promise(r=>setTimeout(r,300));
+  const rpx = await gsQuery(xid+' POS? '+ax);
+  const rpy = await gsQuery(yid+' POS? '+ax);
+  const xVal = rpx ? parseFloat(rpx.includes('=')?rpx.split('=').pop():rpx) : 0;
+  const yVal = rpy ? parseFloat(rpy.includes('=')?rpy.split('=').pop():rpy) : 0;
+  gsOriginX   = isNaN(xVal) ? 0 : xVal;
+  gsOriginY   = isNaN(yVal) ? 0 : yVal;
+  gsOriginSet = true;
+  jogUpdateOriginDisplay();
+  gsAutoSave();
+  lg('sys','GS',`Origin set from FRF position: X=${gsOriginX.toFixed(3)} mm  Y=${gsOriginY.toFixed(3)} mm`);
 }
 
 // ── unit conversion: file coords → controller (mm) ─────────
@@ -2317,6 +2329,7 @@ let gsOriginX     = 0.0;   // reference origin X
 let gsOriginY     = 0.0;   // reference origin Y
 let gsOriginSet   = false;
 let jogPollTimer  = null;
+let jogPolling    = false;  // guard against overlapping polls
 
 // ── open / close ─────────────────────────────────────────────
 function gsOpenJog(){
@@ -2325,36 +2338,47 @@ function gsOpenJog(){
   document.getElementById('jog-y-id-lbl').textContent = gsYID();
   // show current origin
   jogUpdateOriginDisplay();
+  // pause dashboard auto-polling to avoid scanQuery conflicts
+  if(dbAutoTimer){ clearInterval(dbAutoTimer); dbAutoTimer=null; }
   // open overlay
   document.getElementById('jog-overlay').classList.add('show');
   // start live position polling
   jogReadPos();
-  jogPollTimer = setInterval(jogReadPos, 600);
+  jogPollTimer = setInterval(jogReadPos, 1000);
 }
 
 function gsCloseJog(){
   document.getElementById('jog-overlay').classList.remove('show');
   if(jogPollTimer){ clearInterval(jogPollTimer); jogPollTimer=null; }
+  jogPolling = false;
+  // resume dashboard auto-polling if it was on
+  if(dbAutoOn) dbStartAuto();
 }
 
 // ── read live position ────────────────────────────────────────
 async function jogReadPos(){
   if(!connected) return;
-  const xid = gsXID(), yid = gsYID(), ax = gsAxisNum();
-  // query X
-  const rx = await scanQuery(`${xid} POS? ${ax}`, 800);
-  if(rx){
-    const val = rx.includes('=') ? rx.split('=').pop().trim() : rx.trim();
-    const el = document.getElementById('jog-live-x');
-    if(el) el.textContent = parseFloat(val).toFixed(3);
-  }
-  // query Y
-  const ry = await scanQuery(`${yid} POS? ${ax}`, 800);
-  if(ry){
-    const val = ry.includes('=') ? ry.split('=').pop().trim() : ry.trim();
-    const el = document.getElementById('jog-live-y');
-    if(el) el.textContent = parseFloat(val).toFixed(3);
-  }
+  if(jogPolling) return;  // previous poll still running
+  jogPolling = true;
+  try{
+    const xid = gsXID(), yid = gsYID(), ax = gsAxisNum();
+    // query X
+    const rx = await scanQuery(`${xid} POS? ${ax}`, 1200);
+    if(rx){
+      const val = rx.includes('=') ? rx.split('=').pop().trim() : rx.trim();
+      const el = document.getElementById('jog-live-x');
+      if(el && !isNaN(parseFloat(val))) el.textContent = parseFloat(val).toFixed(3);
+    }
+    // small gap before next query
+    await new Promise(r=>setTimeout(r,100));
+    // query Y
+    const ry = await scanQuery(`${yid} POS? ${ax}`, 1200);
+    if(ry){
+      const val = ry.includes('=') ? ry.split('=').pop().trim() : ry.trim();
+      const el = document.getElementById('jog-live-y');
+      if(el && !isNaN(parseFloat(val))) el.textContent = parseFloat(val).toFixed(3);
+    }
+  } finally { jogPolling = false; }
 }
 
 // ── step size ─────────────────────────────────────────────────
