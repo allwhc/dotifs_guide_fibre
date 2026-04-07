@@ -2581,6 +2581,57 @@ function jogSetOrigin(){
   lg('sys','GS',`Origin set: X=${gsOriginX.toFixed(3)}  Y=${gsOriginY.toFixed(3)}`);
 }
 
+// ── FRF both from Set Origin modal ───────────────────────────
+async function jogFRFBoth(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  lg('info','GS','FRF both axes…');
+  await send(xid+' FRF '+ax);
+  await send(yid+' FRF '+ax);
+  const deadline=Date.now()+60000;
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,500));
+    const rx=await gsQuery(xid+' FRF? '+ax);
+    const ry=await gsQuery(yid+' FRF? '+ax);
+    if((rx.includes('=1')||rx.trim()==='1')&&(ry.includes('=1')||ry.trim()==='1')) break;
+  }
+  lg('sys','GS','Both axes homed');
+  await new Promise(r=>setTimeout(r,300));
+  jogReadPos();
+}
+
+async function jogFRFBothAndSet(){
+  await jogFRFBoth();
+  await new Promise(r=>setTimeout(r,500));
+  jogReadPos();
+  await new Promise(r=>setTimeout(r,1500));
+  jogSetOrigin();
+  lg('sys','GS','FRF done → origin locked at homed position');
+}
+
+// ── velocity control ─────────────────────────────────────────
+async function jogSetVelocity(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const vel=parseFloat(document.getElementById('jog-vel').value)||1;
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
+  const st=document.getElementById('jog-vel-status');
+  if(st) st.textContent='Set '+vel+' mm/s on both';
+  lg('sys','GS','Velocity set to '+vel+' mm/s on both X (ctrl '+xid+') and Y (ctrl '+yid+')');
+}
+
+async function jogReadVelocity(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  const rx=await scanQuery(xid+' VEL? '+ax, 1200);
+  const ry=await scanQuery(yid+' VEL? '+ax, 1200);
+  const vx=rx?(rx.includes('=')?rx.split('=').pop().trim():rx.trim()):'?';
+  const vy=ry?(ry.includes('=')?ry.split('=').pop().trim():ry.trim()):'?';
+  const st=document.getElementById('jog-vel-status');
+  if(st) st.textContent='X='+parseFloat(vx).toFixed(2)+' Y='+parseFloat(vy).toFixed(2)+' mm/s';
+}
+
 function jogClearOrigin(){
   gsOriginX   = 0.0;
   gsOriginY   = 0.0;
@@ -3016,6 +3067,22 @@ async function dbScanControllers(){
           <button class="jog-preset" onclick="jogSetStep(1000)">1000</button>
           <span class="jog-pos-lbl">µm</span>
         </div>
+      </div>
+    </div>
+
+    <!-- FRF & Velocity -->
+    <div class="jog-section">
+      <div class="jog-sec-title">Home & Velocity</div>
+      <div class="jog-axis-row">
+        <button class="jog-btn jog-set" onclick="jogFRFBothAndSet()" title="FRF both axes then lock as origin">FRF Both → Lock as Origin</button>
+        <button class="jog-btn jog-move" onclick="jogFRFBoth()" title="FRF both axes without setting origin">FRF Both (no lock)</button>
+      </div>
+      <div class="jog-step-row" style="margin-top:8px">
+        <span class="jog-pos-lbl">Velocity (mm/s)</span>
+        <input class="jog-inp" id="jog-vel" type="number" value="1" min="0.01" step="0.1" style="width:60px">
+        <button class="jog-btn jog-move" onclick="jogSetVelocity()">Set Both</button>
+        <button class="jog-btn jog-ghost" onclick="jogReadVelocity()">Read</button>
+        <span class="jog-pos-lbl" id="jog-vel-status" style="font-size:10px"></span>
       </div>
     </div>
 
