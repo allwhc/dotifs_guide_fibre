@@ -1372,6 +1372,37 @@
         <div class="gf-det-body"  id="gf-det-body">
           <div style="font-size:11px;color:var(--text2)">Click a point on the grid</div>
         </div>
+
+        <!-- Nudge Controls -->
+        <div style="border-top:1px solid var(--border);padding:10px 12px;background:var(--bg3);flex-shrink:0;">
+          <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">
+            Fine Adjust (Nudge)
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span style="font-size:10px;color:var(--text2)">Step</span>
+            <input type="number" id="nudge-step" value="0.001" step="0.001" min="0.0001"
+                   style="width:70px;background:var(--bg2);color:var(--text);border:1px solid var(--border);
+                   border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:12px;text-align:center;outline:none;">
+            <span style="font-size:10px;color:var(--text2)">mm</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <button class="gf-btn gf-blue" onclick="nudge('y',-1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge Y up">▲</button>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <button class="gf-btn gf-blue" onclick="nudge('x',-1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge X left">◄</button>
+              <span style="font-size:9px;color:var(--text2);width:30px;text-align:center" id="nudge-val">1µm</span>
+              <button class="gf-btn gf-blue" onclick="nudge('x',1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge X right">►</button>
+            </div>
+            <button class="gf-btn gf-blue" onclick="nudge('y',1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge Y down">▼</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">
+            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.0001)" style="padding:2px 6px;font-size:10px">0.1µm</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.001)" style="padding:2px 6px;font-size:10px">1µm</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.005)" style="padding:2px 6px;font-size:10px">5µm</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.010)" style="padding:2px 6px;font-size:10px">10µm</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.050)" style="padding:2px 6px;font-size:10px">50µm</button>
+          </div>
+          <div style="font-size:9px;color:var(--text2);margin-top:6px" id="nudge-last-cmd"></div>
+        </div>
       </div>
     </div>
 
@@ -2116,6 +2147,34 @@ function gsQuery(cmd){
 }
 
 // ── fibre panel ──────────────────────────────────────────────
+// ── nudge (fine adjust) ───────────────────────────────────────
+async function nudge(axis, dir){
+  if(!connected){ lg('error','ERR','Not connected'); return; }
+  const step = parseFloat(document.getElementById('nudge-step').value) || 0.001;
+  const dist = step * dir;
+  const id   = axis==='x' ? gsXID() : gsYID();
+  const ax   = gsAxisNum();
+  const cmd  = `${id} MVR ${ax} ${dist.toFixed(6)}`;
+  await send(cmd);
+  const el = document.getElementById('nudge-last-cmd');
+  if(el) el.textContent = 'Sent: ' + cmd;
+  updateNudgeLabel();
+}
+
+function setNudgeStep(val){
+  document.getElementById('nudge-step').value = val;
+  updateNudgeLabel();
+}
+
+function updateNudgeLabel(){
+  const step = parseFloat(document.getElementById('nudge-step').value) || 0.001;
+  const el = document.getElementById('nudge-val');
+  if(!el) return;
+  if(step >= 1)       el.textContent = step.toFixed(1)+'mm';
+  else if(step >= 0.001) el.textContent = (step*1000).toFixed(1)+'µm';
+  else                el.textContent = (step*1000000).toFixed(0)+'nm';
+}
+
 function gsShowFibrePanel(ptIdx){
   const p=gsPoints[ptIdx];
   document.getElementById('gf-det-title').textContent='Point '+gsSeqNum(p.col,p.row);
