@@ -1752,7 +1752,7 @@ function gsGenHexGrid(){
   const pitch = parseFloat(document.getElementById('gs-pitch').value)||250;
   gsPoints = [];
   for(let row=0;row<ROWS;row++){
-    const xOffset = (row%2===1) ? pitch/2 : 0;  // odd rows shifted right by half pitch
+    const xOffset = (row%2===0) ? pitch/2 : 0;  // even rows shifted right by half pitch
     for(let col=0;col<COLS;col++){
       const x = col*pitch + xOffset;
       const y = row*pitch;
@@ -1775,7 +1775,7 @@ function gsSeqNum(col,row){
 
 // ── canvas geometry ─────────────────────────────────────────
 function gsCellXY(col, row){
-  const ox = (row%2===1) ? STAGGER : 0;
+  const ox = (row%2===0) ? STAGGER : 0;
   const cx = ox + R + col*CELL;
   const cy = R + row*CELL;
   return {cx, cy};
