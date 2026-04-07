@@ -1333,10 +1333,6 @@
         <span style="color:var(--text2);font-size:10px" id="gf-origin-display">Origin: not set</span>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <input type="file" id="gs-file-input" accept=".txt" style="display:none" onchange="gsLoadFile(event)">
-        <span class="gf-lbl">Pitch(µm)</span>
-        <input class="gf-inp" id="gs-pitch" type="number" value="250" style="width:56px" title="Fibre pitch in µm">
-        <button class="gf-btn gf-blue" onclick="gsGenHexGrid()" title="Generate 12×12 hex-staggered grid with given pitch">Gen Hex Grid</button>
-        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn gf-ghost" onclick="document.getElementById('gs-file-input').click()">📂 Load .txt positions</button>
         <input type="file" id="gs-json-input" accept=".json" style="display:none" onchange="gsLoadJSON(event)">
         <button class="gf-btn gf-ghost"  onclick="document.getElementById('gs-json-input').click()">📂 Load JSON</button>
@@ -1789,20 +1785,6 @@ function gsDefaultPoints(){
   gsRebuildOrder(); gsRenderCanvas();
 }
 
-function gsGenHexGrid(){
-  const pitch = parseFloat(document.getElementById('gs-pitch').value)||250;
-  gsPoints = [];
-  for(let row=0;row<ROWS;row++){
-    const xOffset = (row%2===0) ? pitch/2 : 0;  // even rows shifted right by half pitch
-    for(let col=0;col<COLS;col++){
-      const x = col*pitch + xOffset;
-      const y = row*pitch;
-      gsPoints.push({col,row,x,y,state:GS_UNVISITED,note:''});
-    }
-  }
-  gsRebuildOrder(); gsRenderCanvas(); gsUpdateStatus();
-  lg('info','GS',`Generated 12×12 hex grid, pitch=${pitch}µm, odd rows offset by ${pitch/2}µm`);
-}
 
 // ── point index helpers ─────────────────────────────────────
 function gsPtIdx(col,row){ return row*COLS+col; }
