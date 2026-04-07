@@ -1342,6 +1342,13 @@
         <button class="gf-btn gf-ghost"  onclick="document.getElementById('gs-json-input').click()">📂 Load JSON</button>
         <button class="gf-btn gf-amber"  onclick="gsSaveJSON()">💾 Save JSON</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+        <span class="gf-lbl">Mode</span>
+        <select class="gf-sel" id="gs-move-mode" onchange="gsAxisSave()" title="MOV = absolute move, MVR = go to origin first then relative move">
+          <option value="mvr" selected>MVR (via origin)</option>
+          <option value="mov">MOV (absolute)</option>
+        </select>
+        <button class="gf-btn gf-amber" onclick="gsMoveToOrigin()" title="Move both axes back to set origin">⌂ Go to Origin</button>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn gf-purple" id="gf-edit-btn" onclick="gsToggleEdit()">Edit Mode: OFF</button>
         <button class="gf-btn gf-green"  onclick="gsNextPoint()">▶ Next Point</button>
         <button class="gf-btn gf-ghost"  onclick="gsResetProgress()">↺ Reset</button>
@@ -1351,6 +1358,7 @@
         <span class="gf-legend"><span class="gf-dot" style="background:var(--amber)"></span>Current</span>
         <span class="gf-legend"><span class="gf-dot" style="background:#1a3a24;border:1px solid var(--green)"></span>Fibre ✓</span>
         <span class="gf-legend"><span class="gf-dot" style="background:#22262f"></span>No fibre</span>
+        <span class="gf-legend"><span class="gf-dot" style="background:#2a1519;border:1px solid #f85149"></span>Skipped</span>
       </div>
       <!-- status strip -->
       <div class="gf-status">
@@ -1358,6 +1366,7 @@
         <span class="gf-lbl">X:</span><span class="gf-sval" id="gf-cur-x">—</span>
         <span class="gf-lbl">Y:</span><span class="gf-sval" id="gf-cur-y">—</span>
         <span class="gf-lbl">Done:</span><span class="gf-sval" style="color:var(--green)" id="gf-done">0</span><span class="gf-lbl">/144</span>
+        <span class="gf-lbl">Skip:</span><span class="gf-sval" style="color:var(--red)" id="gf-skipped">0</span>
         <span class="gf-sval" style="color:var(--amber)" id="gf-move-st"></span>
       </div>
     </div>
@@ -1741,6 +1750,7 @@ function lg(type, dir, text){
 const GS_UNVISITED = 'unvisited';
 const GS_FIBRE     = 'fibre';
 const GS_NOFIBRE   = 'no-fibre';
+const GS_SKIPPED   = 'skipped';
 const COLS = 12, ROWS = 12;
 const R    = 22;   // circle radius px
 const GAP  = 8;    // gap between circles
@@ -1843,6 +1853,8 @@ function gsRenderCanvas(){
       fill='#1a3a24'; stroke='#3fb950'; strokeW=2;
     } else if(p.state===GS_NOFIBRE){
       fill='#22262f'; stroke='#3a4458'; strokeW=1;
+    } else if(p.state===GS_SKIPPED){
+      fill='#2a1519'; stroke='#f85149'; strokeW=1.5;
     } else {
       fill='#2a2d35'; stroke='#3a4458'; strokeW=1;
     }
@@ -1866,6 +1878,15 @@ function gsRenderCanvas(){
       ctx.moveTo(cx-7,cy);
       ctx.lineTo(cx-2,cy+6);
       ctx.lineTo(cx+8,cy-7);
+      ctx.stroke();
+    }
+    // X mark for skipped
+    if(p.state===GS_SKIPPED){
+      ctx.strokeStyle='#f85149';
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(cx-6,cy-6); ctx.lineTo(cx+6,cy+6);
+      ctx.moveTo(cx+6,cy-6); ctx.lineTo(cx-6,cy+6);
       ctx.stroke();
     }
 
@@ -1953,6 +1974,8 @@ function gsAxisSave(){
   if(no) localStorage.setItem('gs_numorder', no.value);
   const un = document.getElementById('gs-unit');
   if(un) localStorage.setItem('gs_unit', un.value);
+  const mm = document.getElementById('gs-move-mode');
+  if(mm) localStorage.setItem('gs_move_mode', mm.value);
 }
 function gsLoadSettings(){
   const xi=localStorage.getItem('gs_x_id');
@@ -1967,6 +1990,8 @@ function gsLoadSettings(){
   if(tr) document.getElementById('gs-traverse').value=tr;
   if(no){ const el=document.getElementById('gs-numorder'); if(el) el.value=no; }
   if(un){ const el=document.getElementById('gs-unit'); if(el) el.value=un; }
+  const mm=localStorage.getItem('gs_move_mode');
+  if(mm){ const el=document.getElementById('gs-move-mode'); if(el) el.value=mm; }
 }
 function gsXID()    { return parseInt(document.getElementById('gs-x-id').value)||1; }
 function gsYID()    { return parseInt(document.getElementById('gs-y-id').value)||2; }
@@ -2096,6 +2121,34 @@ async function gsOverlayConfirm(){
   gsPending=-1;
 }
 
+// ── wait for both axes on-target ─────────────────────────────
+async function gsWaitONT(xid, yid, ax, timeoutMs){
+  const deadline=Date.now()+(timeoutMs||30000);
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,400));
+    const rx=await gsQuery(xid+' ONT? '+ax);
+    const ry=await gsQuery(yid+' ONT? '+ax);
+    if((rx.includes('=1')||rx.trim()==='1')&&(ry.includes('=1')||ry.trim()==='1')) return true;
+  }
+  return false;
+}
+
+// ── move to origin ───────────────────────────────────────────
+async function gsMoveToOrigin(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  if(!gsOriginSet){lg('error','ERR','Origin not set — use FRF Both XY or Jog to Origin');return;}
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  document.getElementById('gf-move-st').textContent='Going to origin…';
+  lg('info','GS','Moving to origin: X='+gsOriginX.toFixed(6)+' Y='+gsOriginY.toFixed(6));
+  await send(xid+' MOV '+ax+' '+gsOriginX.toFixed(6));
+  await send(yid+' MOV '+ax+' '+gsOriginY.toFixed(6));
+  gsWaitingForONT = true;
+  await gsWaitONT(xid, yid, ax, 30000);
+  gsWaitingForONT = false;
+  document.getElementById('gf-move-st').textContent='At origin ✓';
+  lg('sys','GS','Arrived at origin');
+}
+
 // ── move to point ────────────────────────────────────────────
 async function gsMoveToPoint(ptIdx){
   if(!connected){lg('error','ERR','Not connected');return;}
@@ -2110,27 +2163,44 @@ async function gsMoveToPoint(ptIdx){
   document.getElementById('gf-cur-y').textContent=p.y?p.y.toFixed(3):'0';
   const xMM = gsUnitToMM(p.x);
   const yMM = gsUnitToMM(p.y);
-  const targetX = gsOriginSet ? gsOriginX + xMM : xMM;
-  const targetY = gsOriginSet ? gsOriginY + yMM : yMM;
+  const mode = document.getElementById('gs-move-mode')?document.getElementById('gs-move-mode').value:'mvr';
   const unit = document.getElementById('gs-unit')?document.getElementById('gs-unit').value:'um';
-  lg('info','GS','Moving to point '+gsSeqNum(p.col,p.row)
-    +' file=('+p.x.toFixed(3)+' '+unit+','+p.y.toFixed(3)+' '+unit+')'
-    +' target=('+targetX.toFixed(6)+' mm,'+targetY.toFixed(6)+' mm)');
-  await send(xid+' MOV '+ax+' '+targetX.toFixed(6));
-  await send(yid+' MOV '+ax+' '+targetY.toFixed(6));
-  // poll ONT? up to 30s
+
   gsWaitingForONT = true;
-  const deadline=Date.now()+30000;
-  while(Date.now()<deadline){
-    await new Promise(r=>setTimeout(r,400));
-    const rx=await gsQuery(xid+' ONT? '+ax);
-    const ry=await gsQuery(yid+' ONT? '+ax);
-    if((rx.includes('=1')||rx.trim()==='1')&&(ry.includes('=1')||ry.trim()==='1')) break;
+
+  if(mode==='mvr'){
+    // MVR mode: go to origin first, then MVR by offset
+    if(!gsOriginSet){lg('error','ERR','MVR mode requires origin — set it first');gsWaitingForONT=false;return;}
+    lg('info','GS','[MVR] Going to origin first…');
+    document.getElementById('gf-move-st').textContent='→ origin…';
+    await send(xid+' MOV '+ax+' '+gsOriginX.toFixed(6));
+    await send(yid+' MOV '+ax+' '+gsOriginY.toFixed(6));
+    await gsWaitONT(xid, yid, ax, 30000);
+    // now MVR by file offset
+    lg('info','GS','[MVR] At origin, now MVR to point '+gsSeqNum(p.col,p.row)
+      +' offset=('+xMM.toFixed(6)+' mm, '+yMM.toFixed(6)+' mm)');
+    document.getElementById('gf-move-st').textContent='MVR → point…';
+    await send(xid+' MVR '+ax+' '+xMM.toFixed(6));
+    await send(yid+' MVR '+ax+' '+yMM.toFixed(6));
+  } else {
+    // MOV mode: absolute move
+    const targetX = gsOriginSet ? gsOriginX + xMM : xMM;
+    const targetY = gsOriginSet ? gsOriginY + yMM : yMM;
+    lg('info','GS','[MOV] Moving to point '+gsSeqNum(p.col,p.row)
+      +' file=('+p.x.toFixed(3)+' '+unit+','+p.y.toFixed(3)+' '+unit+')'
+      +' target=('+targetX.toFixed(6)+' mm,'+targetY.toFixed(6)+' mm)');
+    await send(xid+' MOV '+ax+' '+targetX.toFixed(6));
+    await send(yid+' MOV '+ax+' '+targetY.toFixed(6));
   }
+
+  // poll ONT? up to 30s
+  await gsWaitONT(xid, yid, ax, 30000);
   gsWaitingForONT = false;
   document.getElementById('gf-move-st').textContent='Arrived ✓';
   lg('sys','GS','Arrived at point '+gsSeqNum(p.col,p.row));
-  dbAddHistory(gsSeqNum(p.col,p.row), p.col, p.row, targetX, targetY, 'moved', '');
+  const finalX = gsOriginSet ? gsOriginX + xMM : xMM;
+  const finalY = gsOriginSet ? gsOriginY + yMM : yMM;
+  dbAddHistory(gsSeqNum(p.col,p.row), p.col, p.row, finalX, finalY, 'moved', mode.toUpperCase());
   gsShowFibrePanel(ptIdx);
 }
 
@@ -2190,6 +2260,12 @@ function gsShowFibrePanel(ptIdx){
     '  <button class="gf-btn gf-green" onclick="gsSetFibre('+ptIdx+',true)">✓ Yes</button>'+
     '  <button class="gf-btn gf-ghost" onclick="gsSetFibre('+ptIdx+',false)">✗ No</button>'+
     '</div>'+
+    '<div class="gf-fb" style="margin-top:4px">'+
+    (p.state===GS_SKIPPED
+      ? '  <button class="gf-btn gf-amber" style="width:100%" onclick="gsRestorePoint('+ptIdx+')">↩ Restore Point</button>'
+      : '  <button class="gf-btn" style="width:100%;background:var(--red);color:#fff;border-color:var(--red)" onclick="gsSkipPoint('+ptIdx+')">✕ Delete / Skip</button>'
+    )+
+    '</div>'+
     '<div style="font-size:10px;color:var(--text2);margin-top:8px">Note (optional)</div>'+
     '<textarea class="gf-na" id="gf-note-'+ptIdx+'" placeholder="e.g. loose, broken, ok…">'+(p.note||'')+'</textarea>'+
     '<button class="gf-btn gf-amber" style="width:100%;margin-top:4px" onclick="gsSaveNote('+ptIdx+')">Save Note</button>';
@@ -2206,6 +2282,22 @@ function gsSetFibre(ptIdx, yes){
   // update latest history entry for this point
   const hi = dbMotionHistory.findIndex(e=>e.col===p.col&&e.row===p.row);
   if(hi>=0){ dbMotionHistory[hi].status=p.state; dbMotionHistory[hi].note=p.note||''; dbRenderHistory(); }
+}
+
+function gsSkipPoint(ptIdx){
+  const p=gsPoints[ptIdx];
+  p.state=GS_SKIPPED;
+  gsRenderCanvas(); gsUpdateStatus(); gsAutoSave();
+  gsShowFibrePanel(ptIdx);
+  lg('sys','GS','Point '+gsSeqNum(p.col,p.row)+': SKIPPED/DELETED');
+}
+
+function gsRestorePoint(ptIdx){
+  const p=gsPoints[ptIdx];
+  p.state=GS_UNVISITED;
+  gsRenderCanvas(); gsUpdateStatus(); gsAutoSave();
+  gsShowFibrePanel(ptIdx);
+  lg('sys','GS','Point '+gsSeqNum(p.col,p.row)+': RESTORED to unvisited');
 }
 
 function gsSaveNote(ptIdx){
@@ -2263,7 +2355,8 @@ async function gsNextPoint(){
   for(let i=0;i<gsOrder.length;i++){
     const oi=(start+i)%gsOrder.length;
     const ptIdx=gsOrder[oi];
-    if(gsPoints[ptIdx].state===GS_UNVISITED){
+    const st=gsPoints[ptIdx].state;
+    if(st===GS_UNVISITED){
       gsOnCellClick(ptIdx); return;
     }
   }
@@ -2272,9 +2365,12 @@ async function gsNextPoint(){
 
 // ── status ───────────────────────────────────────────────────
 function gsUpdateStatus(){
-  const done=gsPoints.filter(p=>p.state!==GS_UNVISITED).length;
+  const done=gsPoints.filter(p=>p.state===GS_FIBRE||p.state===GS_NOFIBRE).length;
+  const skipped=gsPoints.filter(p=>p.state===GS_SKIPPED).length;
   const el=document.getElementById('gf-done');
   if(el) el.textContent=done;
+  const sk=document.getElementById('gf-skipped');
+  if(sk) sk.textContent=skipped;
 }
 
 // ── save/load ────────────────────────────────────────────────
