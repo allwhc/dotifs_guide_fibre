@@ -1344,6 +1344,7 @@
         <input type="file" id="gs-json-input" accept=".json" style="display:none" onchange="gsLoadJSON(event)">
         <button class="gf-btn gf-ghost"  onclick="document.getElementById('gs-json-input').click()">📂 Load JSON</button>
         <button class="gf-btn gf-amber"  onclick="gsSaveJSON()">💾 Save JSON</button>
+        <button class="gf-btn gf-green"  onclick="gsExportRecorded()" title="Export recorded stage positions as .txt file">📤 Export Recorded .txt</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn gf-amber" onclick="gsMoveToOrigin()" title="Move both axes back to set origin">⌂ Go to Origin</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
@@ -1365,6 +1366,7 @@
         <span class="gf-lbl">Y:</span><span class="gf-sval" id="gf-cur-y">—</span>
         <span class="gf-lbl">Done:</span><span class="gf-sval" style="color:var(--green)" id="gf-done">0</span><span class="gf-lbl">/144</span>
         <span class="gf-lbl">Skip:</span><span class="gf-sval" style="color:var(--red)" id="gf-skipped">0</span>
+        <span class="gf-lbl">Rec:</span><span class="gf-sval" style="color:var(--blue)" id="gf-recorded">0</span>
         <div style="width:1px;height:16px;background:var(--border);margin:0 6px"></div>
         <span class="gf-lbl">Origin:</span><span class="gf-sval" style="color:var(--purple)" id="gf-origin-status">not set</span>
         <span class="gf-sval" style="color:var(--amber)" id="gf-move-st"></span>
@@ -2321,7 +2323,16 @@ function gsShowFibrePanel(ptIdx){
       : '  <button class="gf-btn" style="width:100%;background:var(--red);color:#fff;border-color:var(--red)" onclick="gsSkipPoint('+ptIdx+')">✕ Delete / Skip</button>'
     )+
     '</div>'+
-    '<div style="font-size:10px;color:var(--text2);margin-top:8px">Note (optional)</div>'+
+    '<hr class="gf-sep">'+
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Record actual position</div>'+
+    '<button class="gf-btn gf-blue" style="width:100%" onclick="gsRecordPosition('+ptIdx+')">📍 Record Position (POS?)</button>'+
+    (p.recX!==undefined
+      ? '<div class="gf-dr" style="margin-top:4px"><span class="gf-dk">Rec X</span><span class="gf-dv" style="color:var(--green)">'+p.recX.toFixed(3)+' µm</span></div>'+
+        '<div class="gf-dr"><span class="gf-dk">Rec Y</span><span class="gf-dv" style="color:var(--green)">'+p.recY.toFixed(3)+' µm</span></div>'
+      : '<div style="font-size:9px;color:var(--text2);margin-top:2px">Not yet recorded</div>'
+    )+
+    '<hr class="gf-sep">'+
+    '<div style="font-size:10px;color:var(--text2);margin-top:4px">Note (optional)</div>'+
     '<textarea class="gf-na" id="gf-note-'+ptIdx+'" placeholder="e.g. loose, broken, ok…">'+(p.note||'')+'</textarea>'+
     '<button class="gf-btn gf-amber" style="width:100%;margin-top:4px" onclick="gsSaveNote('+ptIdx+')">Save Note</button>';
 }
@@ -2337,6 +2348,55 @@ function gsSetFibre(ptIdx, yes){
   // update latest history entry for this point
   const hi = dbMotionHistory.findIndex(e=>e.col===p.col&&e.row===p.row);
   if(hi>=0){ dbMotionHistory[hi].status=p.state; dbMotionHistory[hi].note=p.note||''; dbRenderHistory(); }
+}
+
+// ── record actual stage position ─────────────────────────────
+async function gsRecordPosition(ptIdx){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  if(!gsOriginSet){lg('error','ERR','Origin not set');return;}
+  const p=gsPoints[ptIdx];
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  // read current position from both axes
+  const rx=await scanQuery(xid+' POS? '+ax, 1200);
+  await new Promise(r=>setTimeout(r,100));
+  const ry=await scanQuery(yid+' POS? '+ax, 1200);
+  if(!rx||!ry){lg('error','ERR','Failed to read position');return;}
+  const posX=parseFloat(rx.includes('=')?rx.split('=').pop():rx);
+  const posY=parseFloat(ry.includes('=')?ry.split('=').pop():ry);
+  if(isNaN(posX)||isNaN(posY)){lg('error','ERR','Invalid position response');return;}
+  // subtract origin to get offset, convert mm → µm
+  const offX=(posX-gsOriginX)*1000;
+  const offY=(posY-gsOriginY)*1000;
+  p.recX=offX;
+  p.recY=offY;
+  gsAutoSave();
+  gsShowFibrePanel(ptIdx);
+  lg('sys','GS','Recorded point '+gsSeqNum(p.col,p.row)
+    +': POS=('+posX.toFixed(6)+','+posY.toFixed(6)+') mm'
+    +' offset=('+offX.toFixed(3)+','+offY.toFixed(3)+') µm');
+}
+
+// ── export recorded coordinates as .txt ──────────────────────
+function gsExportRecorded(){
+  const recorded=gsPoints.filter(p=>p.recX!==undefined);
+  if(recorded.length===0){
+    lg('error','GS','No recorded positions — use "Record Position" on each point first');
+    return;
+  }
+  let txt='';
+  gsPoints.forEach(p=>{
+    const rx=p.recX!==undefined?p.recX:0;
+    const ry=p.recY!==undefined?p.recY:0;
+    txt+=p.col+' '+p.row+' '+rx.toFixed(6)+' '+ry.toFixed(6)+'\n';
+  });
+  const blob=new Blob([txt],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='MLA_recorded_positions_'+new Date().toISOString().slice(0,10)+'.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+  lg('sys','GS','Exported '+recorded.length+'/144 recorded positions');
 }
 
 function gsSkipPoint(ptIdx){
@@ -2422,10 +2482,13 @@ async function gsNextPoint(){
 function gsUpdateStatus(){
   const done=gsPoints.filter(p=>p.state===GS_FIBRE||p.state===GS_NOFIBRE).length;
   const skipped=gsPoints.filter(p=>p.state===GS_SKIPPED).length;
+  const recorded=gsPoints.filter(p=>p.recX!==undefined).length;
   const el=document.getElementById('gf-done');
   if(el) el.textContent=done;
   const sk=document.getElementById('gf-skipped');
   if(sk) sk.textContent=skipped;
+  const rc=document.getElementById('gf-recorded');
+  if(rc) rc.textContent=recorded;
 }
 
 // ── save/load ────────────────────────────────────────────────
