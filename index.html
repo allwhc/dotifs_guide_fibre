@@ -1387,28 +1387,42 @@
           <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">
             Fine Adjust (Nudge)
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-            <span style="font-size:10px;color:var(--text2)">Step</span>
-            <input type="number" id="nudge-step" value="0.001" step="0.001" min="0.0001"
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span style="font-size:10px;color:var(--text2);width:36px">Step</span>
+            <input type="number" id="nudge-step-um" value="1" step="0.1" min="0.01"
                    style="width:70px;background:var(--bg2);color:var(--text);border:1px solid var(--border);
-                   border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:12px;text-align:center;outline:none;">
-            <span style="font-size:10px;color:var(--text2)">mm</span>
+                   border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:12px;text-align:center;outline:none;"
+                   oninput="nudgeUpdateTotal()">
+            <span style="font-size:10px;color:var(--text2)">µm</span>
           </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span style="font-size:10px;color:var(--text2);width:36px">Steps</span>
+            <input type="number" id="nudge-steps" value="1" step="1" min="1"
+                   style="width:70px;background:var(--bg2);color:var(--text);border:1px solid var(--border);
+                   border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:12px;text-align:center;outline:none;"
+                   oninput="nudgeUpdateTotal()">
+            <span style="font-size:10px;color:var(--text2)">×</span>
+          </div>
+          <div style="font-size:10px;color:var(--amber);margin-bottom:8px;font-weight:600" id="nudge-total">Total: 1.000 µm = 0.001000 mm</div>
           <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-            <button class="gf-btn gf-blue" onclick="nudge('y',-1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge Y up">▲</button>
+            <button class="gf-btn gf-blue" onclick="nudge('y',-1)" style="width:60px;padding:5px 0;font-size:14px" title="Nudge Y up">▲</button>
             <div style="display:flex;gap:4px;align-items:center;">
-              <button class="gf-btn gf-blue" onclick="nudge('x',-1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge X left">◄</button>
-              <span style="font-size:9px;color:var(--text2);width:30px;text-align:center" id="nudge-val">1µm</span>
-              <button class="gf-btn gf-blue" onclick="nudge('x',1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge X right">►</button>
+              <button class="gf-btn gf-blue" onclick="nudge('x',-1)" style="width:60px;padding:5px 0;font-size:14px" title="Nudge X left">◄</button>
+              <span style="font-size:9px;color:var(--amber);width:50px;text-align:center;font-weight:600" id="nudge-val">1µm</span>
+              <button class="gf-btn gf-blue" onclick="nudge('x',1)" style="width:60px;padding:5px 0;font-size:14px" title="Nudge X right">►</button>
             </div>
-            <button class="gf-btn gf-blue" onclick="nudge('y',1)" style="width:50px;padding:4px 0;font-size:14px" title="Nudge Y down">▼</button>
+            <button class="gf-btn gf-blue" onclick="nudge('y',1)" style="width:60px;padding:5px 0;font-size:14px" title="Nudge Y down">▼</button>
           </div>
-          <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">
-            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.0001)" style="padding:2px 6px;font-size:10px">0.1µm</button>
-            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.001)" style="padding:2px 6px;font-size:10px">1µm</button>
-            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.005)" style="padding:2px 6px;font-size:10px">5µm</button>
-            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.010)" style="padding:2px 6px;font-size:10px">10µm</button>
-            <button class="gf-btn gf-ghost" onclick="setNudgeStep(0.050)" style="padding:2px 6px;font-size:10px">50µm</button>
+          <div style="display:flex;gap:3px;margin-top:8px;flex-wrap:wrap;">
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(0.1)" style="padding:2px 5px;font-size:9px">0.1</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(1)" style="padding:2px 5px;font-size:9px">1</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(5)" style="padding:2px 5px;font-size:9px">5</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(10)" style="padding:2px 5px;font-size:9px">10</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(50)" style="padding:2px 5px;font-size:9px">50</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(65)" style="padding:2px 5px;font-size:9px">65</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(75)" style="padding:2px 5px;font-size:9px">75</button>
+            <button class="gf-btn gf-ghost" onclick="setNudgeUm(250)" style="padding:2px 5px;font-size:9px">250</button>
+            <span style="font-size:9px;color:var(--text2);align-self:center">µm</span>
           </div>
           <div style="font-size:9px;color:var(--text2);margin-top:6px" id="nudge-last-cmd"></div>
         </div>
@@ -2249,30 +2263,41 @@ function gsQuery(cmd){
 // ── nudge (fine adjust) ───────────────────────────────────────
 async function nudge(axis, dir){
   if(!connected){ lg('error','ERR','Not connected'); return; }
-  const step = parseFloat(document.getElementById('nudge-step').value) || 0.001;
+  const stepUm = parseFloat(document.getElementById('nudge-step-um').value) || 1;
+  const steps  = parseInt(document.getElementById('nudge-steps').value) || 1;
+  const totalUm = stepUm * steps;
+  const totalMM = totalUm / 1000;
   const inv  = axis==='x' ? gsInvertX() : gsInvertY();
-  const dist = step * dir * inv;
+  const dist = totalMM * dir * inv;
   const id   = axis==='x' ? gsXID() : gsYID();
   const ax   = gsAxisNum();
   const cmd  = `${id} MVR ${ax} ${dist.toFixed(6)}`;
   await send(cmd);
   const el = document.getElementById('nudge-last-cmd');
-  if(el) el.textContent = 'Sent: ' + cmd;
-  updateNudgeLabel();
+  if(el) el.textContent = 'Sent: ' + cmd + ' (' + totalUm.toFixed(1) + 'µm ' + axis.toUpperCase() + ')';
+  nudgeUpdateTotal();
 }
 
-function setNudgeStep(val){
-  document.getElementById('nudge-step').value = val;
-  updateNudgeLabel();
+function setNudgeUm(val){
+  document.getElementById('nudge-step-um').value = val;
+  document.getElementById('nudge-steps').value = 1;
+  nudgeUpdateTotal();
 }
 
-function updateNudgeLabel(){
-  const step = parseFloat(document.getElementById('nudge-step').value) || 0.001;
+function nudgeUpdateTotal(){
+  const stepUm = parseFloat(document.getElementById('nudge-step-um').value) || 1;
+  const steps  = parseInt(document.getElementById('nudge-steps').value) || 1;
+  const totalUm = stepUm * steps;
+  const totalMM = totalUm / 1000;
+  // update total display
+  const tot = document.getElementById('nudge-total');
+  if(tot) tot.textContent = 'Total: ' + totalUm.toFixed(3) + ' µm = ' + totalMM.toFixed(6) + ' mm';
+  // update center label
   const el = document.getElementById('nudge-val');
   if(!el) return;
-  if(step >= 1)       el.textContent = step.toFixed(1)+'mm';
-  else if(step >= 0.001) el.textContent = (step*1000).toFixed(1)+'µm';
-  else                el.textContent = (step*1000000).toFixed(0)+'nm';
+  if(totalUm >= 1000) el.textContent = (totalUm/1000).toFixed(2)+'mm';
+  else if(totalUm >= 1) el.textContent = totalUm.toFixed(1)+'µm';
+  else el.textContent = (totalUm*1000).toFixed(0)+'nm';
 }
 
 function gsShowFibrePanel(ptIdx){
