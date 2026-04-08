@@ -1317,6 +1317,13 @@
           <option value="mm">mm</option>
         </select>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:3px;cursor:pointer" title="Flip X direction (microscope inversion)">
+          <input type="checkbox" id="gs-invert-x" onchange="gsAxisSave()"> Invert X
+        </label>
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:3px;cursor:pointer" title="Flip Y direction (microscope inversion)">
+          <input type="checkbox" id="gs-invert-y" onchange="gsAxisSave()"> Invert Y
+        </label>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <span class="gf-lbl">Traverse</span>
         <select class="gf-sel" id="gs-traverse" onchange="gsRebuildOrder();gsRenderCanvas()">
           <option value="col">Top→Bottom (col first)</option>
@@ -1964,6 +1971,10 @@ function gsAxisSave(){
   if(no) localStorage.setItem('gs_numorder', no.value);
   const un = document.getElementById('gs-unit');
   if(un) localStorage.setItem('gs_unit', un.value);
+  const ix = document.getElementById('gs-invert-x');
+  if(ix) localStorage.setItem('gs_invert_x', ix.checked?'1':'0');
+  const iy = document.getElementById('gs-invert-y');
+  if(iy) localStorage.setItem('gs_invert_y', iy.checked?'1':'0');
 }
 function gsLoadSettings(){
   const xi=localStorage.getItem('gs_x_id');
@@ -1978,6 +1989,10 @@ function gsLoadSettings(){
   if(tr) document.getElementById('gs-traverse').value=tr;
   if(no){ const el=document.getElementById('gs-numorder'); if(el) el.value=no; }
   if(un){ const el=document.getElementById('gs-unit'); if(el) el.value=un; }
+  const ix=localStorage.getItem('gs_invert_x');
+  if(ix==='1'){ const el=document.getElementById('gs-invert-x'); if(el) el.checked=true; }
+  const iy=localStorage.getItem('gs_invert_y');
+  if(iy==='1'){ const el=document.getElementById('gs-invert-y'); if(el) el.checked=true; }
 }
 function gsXID()    { return parseInt(document.getElementById('gs-x-id').value)||1; }
 function gsYID()    { return parseInt(document.getElementById('gs-y-id').value)||2; }
@@ -2050,6 +2065,10 @@ async function gsFRFBoth(){
   lg('sys','GS',`Origin set from FRF position: X=${gsOriginX.toFixed(3)} mm  Y=${gsOriginY.toFixed(3)} mm`);
 }
 
+// ── axis inversion (microscope correction) ──────────────────
+function gsInvertX(){ return document.getElementById('gs-invert-x')?.checked ? -1 : 1; }
+function gsInvertY(){ return document.getElementById('gs-invert-y')?.checked ? -1 : 1; }
+
 // ── unit conversion: file coords → controller (mm) ─────────
 function gsUnitToMM(val){
   const unit = document.getElementById('gs-unit')?document.getElementById('gs-unit').value:'um';
@@ -2098,14 +2117,19 @@ function gsOnCellClick(ptIdx){
   document.getElementById('gs-dlg-title').textContent='Move to point '+gsSeqNum(p.col,p.row)+'?';
   document.getElementById('gs-dlg-body').textContent='Grid position: col '+p.col+', row '+p.row;
 
+  const pvX = xMM * gsInvertX();
+  const pvY = yMM * gsInvertY();
   let preview = 'File: X='+p.x.toFixed(3)+' '+unit+', Y='+p.y.toFixed(3)+' '+unit+'\n';
-  preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n\n';
-  preview += 'Commands:\n';
+  preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n';
+  if(gsInvertX()===-1||gsInvertY()===-1)
+    preview += 'Invert: '+(gsInvertX()===-1?'X ':'')+(gsInvertY()===-1?'Y':'')+'\n';
+  preview += '\nCommands:\n';
   preview += '  '+xid+' MOV '+ax+' '+gsOriginX.toFixed(6)+'  (→ origin X)\n';
   preview += '  '+yid+' MOV '+ax+' '+gsOriginY.toFixed(6)+'  (→ origin Y)\n';
   preview += '  [wait on-target]\n';
-  preview += '  '+xid+' MVR '+ax+' '+xMM.toFixed(6)+'  (offset X)\n';
-  preview += '  '+yid+' MVR '+ax+' '+yMM.toFixed(6)+'  (offset Y)';
+  preview += '  '+xid+' MVR '+ax+' '+pvX.toFixed(6)+'  (offset X'+(gsInvertX()===-1?' inv':'')+')\n';
+  preview += '  '+yid+' MVR '+ax+' '+pvY.toFixed(6)+'  (offset Y'+(gsInvertY()===-1?' inv':'')+')';
+
   document.getElementById('gs-dlg-coord').textContent = preview;
   document.getElementById('gs-overlay').classList.add('show');
 }
@@ -2189,11 +2213,14 @@ async function gsMoveToPoint(ptIdx){
   await gsSend(yid+' MOV '+ax+' '+gsOriginY.toFixed(6), 'origin Y');
   await gsWaitONT(xid, yid, ax, 30000);
   // MVR by file offset from origin
+  const mvrX = xMM * gsInvertX();
+  const mvrY = yMM * gsInvertY();
   lg('info','GS','At origin, MVR to point '+gsSeqNum(p.col,p.row)
-    +' offset=('+xMM.toFixed(6)+' mm, '+yMM.toFixed(6)+' mm)');
+    +' offset=('+mvrX.toFixed(6)+' mm, '+mvrY.toFixed(6)+' mm)'
+    +(gsInvertX()===-1||gsInvertY()===-1?' [inverted]':''));
   document.getElementById('gf-move-st').textContent='MVR → point…';
-  await gsSend(xid+' MVR '+ax+' '+xMM.toFixed(6), 'offset X = '+p.x.toFixed(1)+' '+unit);
-  await gsSend(yid+' MVR '+ax+' '+yMM.toFixed(6), 'offset Y = '+p.y.toFixed(1)+' '+unit);
+  await gsSend(xid+' MVR '+ax+' '+mvrX.toFixed(6), 'offset X = '+p.x.toFixed(1)+' '+unit+(gsInvertX()===-1?' [inv]':''));
+  await gsSend(yid+' MVR '+ax+' '+mvrY.toFixed(6), 'offset Y = '+p.y.toFixed(1)+' '+unit+(gsInvertY()===-1?' [inv]':''));
 
   // poll ONT? up to 30s
   await gsWaitONT(xid, yid, ax, 30000);
@@ -2223,7 +2250,8 @@ function gsQuery(cmd){
 async function nudge(axis, dir){
   if(!connected){ lg('error','ERR','Not connected'); return; }
   const step = parseFloat(document.getElementById('nudge-step').value) || 0.001;
-  const dist = step * dir;
+  const inv  = axis==='x' ? gsInvertX() : gsInvertY();
+  const dist = step * dir * inv;
   const id   = axis==='x' ? gsXID() : gsYID();
   const ax   = gsAxisNum();
   const cmd  = `${id} MVR ${ax} ${dist.toFixed(6)}`;
@@ -2555,7 +2583,8 @@ function jogGetStep(){
 async function jogMove(axis, multiplier){
   if(!connected){ lg('error','ERR','Not connected'); return; }
   const step = jogGetStep();
-  const dist = step * multiplier;
+  const inv  = axis==='x' ? gsInvertX() : gsInvertY();
+  const dist = step * multiplier * inv;
   const id   = axis==='x' ? gsXID() : gsYID();
   const ax   = gsAxisNum();
   await send(`${id} MVR ${ax} ${dist.toFixed(4)}`);
