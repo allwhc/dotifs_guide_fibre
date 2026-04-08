@@ -1348,6 +1348,8 @@
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn gf-amber" onclick="gsMoveToOrigin()" title="Move both axes back to set origin">⌂ Go to Origin</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+        <button class="gf-btn" id="gf-rec-btn" onclick="gsToggleRecordMode()"
+                style="background:transparent;color:var(--text2);border:1px solid var(--border)">🔴 Record: OFF</button>
         <button class="gf-btn gf-purple" id="gf-edit-btn" onclick="gsToggleEdit()">Edit Mode: OFF</button>
         <button class="gf-btn gf-green"  onclick="gsNextPoint()">▶ Next Point</button>
         <button class="gf-btn gf-ghost"  onclick="gsResetProgress()">↺ Reset</button>
@@ -1358,6 +1360,7 @@
         <span class="gf-legend"><span class="gf-dot" style="background:#1a3a24;border:1px solid var(--green)"></span>Fibre ✓</span>
         <span class="gf-legend"><span class="gf-dot" style="background:#22262f"></span>No fibre</span>
         <span class="gf-legend"><span class="gf-dot" style="background:#2a1519;border:1px solid #f85149"></span>Skipped</span>
+        <span class="gf-legend"><span class="gf-dot" style="background:#2a2510;border:2px solid #d29922"></span>Recorded</span>
       </div>
       <!-- status strip -->
       <div class="gf-status">
@@ -1453,7 +1456,20 @@
     <div class="gs-dialog-coord" id="gs-dlg-coord"></div>
     <div class="gs-dialog-btns">
       <button class="gf-btn gf-ghost" onclick="gsOverlayCancel()">Cancel</button>
-      <button class="gf-btn gf-green" onclick="gsOverlayConfirm()">Move</button>
+      <button class="gf-btn gf-green" id="gs-dlg-confirm" onclick="gsOverlayConfirm()">Move</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORIGIN CHOICE OVERLAY -->
+<div class="gs-overlay" id="origin-choice-overlay">
+  <div class="gs-dialog" style="max-width:420px">
+    <div class="gs-dialog-title">Recorded File — Set Origin</div>
+    <div class="gs-dialog-body" id="origin-choice-body"></div>
+    <div class="gs-dialog-coord" id="origin-choice-info" style="white-space:pre-wrap;text-align:left;font-size:11px"></div>
+    <div class="gs-dialog-btns">
+      <button class="gf-btn gf-green" onclick="gsOriginChoiceSame()">Use Same Origin</button>
+      <button class="gf-btn gf-purple" onclick="gsOriginChoiceNew()">Set New Origin</button>
     </div>
   </div>
 </div>
@@ -1788,7 +1804,8 @@ const STAGGER = CELL / 2; // odd rows offset right
 let gsPoints   = [];   // [{col,row,x,y,state,note}]  row=0 top
 let gsOrder    = [];   // indices in traversal order
 let gsCurIdx   = -1;   // index in gsOrder
-let gsEditMode = false;
+let gsEditMode   = false;
+let gsRecordMode = false;
 let gsPending  = -1;
 let gsQueryResolvers = [];
 let gsWaitingForONT = false;  // true only during gsMoveToPoint polling
@@ -1873,6 +1890,11 @@ function gsRenderCanvas(){
     }
     if(isHover && !isCurrent){ stroke='#58a6ff'; strokeW=2; }
     if(gsEditMode){ stroke='#bc8cff'; strokeW=1.5; }
+
+    // recorded points: amber background
+    if(p.recX!==undefined && !isCurrent){
+      fill='#2a2510'; stroke='#d29922'; strokeW=2;
+    }
 
     // draw circle
     ctx.beginPath();
@@ -2097,8 +2119,16 @@ function gsLoadFile(evt){
   const fr=new FileReader();
   fr.onload=e=>{
     const lines=e.target.result.split(/\r?\n/).filter(l=>l.trim());
+    // check for recorded file header
+    let fileOriginX=null, fileOriginY=null;
+    let isRecordedFile=false;
+    lines.forEach(line=>{
+      if(line.startsWith('# Origin_X:')){ fileOriginX=parseFloat(line.split(':')[1]); isRecordedFile=true; }
+      if(line.startsWith('# Origin_Y:')){ fileOriginY=parseFloat(line.split(':')[1]); isRecordedFile=true; }
+    });
     const parsed=[];
     lines.forEach(line=>{
+      if(line.startsWith('#')) return;  // skip comment lines
       const p=line.trim().split(/\s+/);
       if(p.length<4) return;
       const col=parseInt(p[0]),row=parseInt(p[1]);
@@ -2106,6 +2136,30 @@ function gsLoadFile(evt){
       if(isNaN(col)||isNaN(row)||isNaN(x)||isNaN(y)) return;
       parsed.push({col,row,x,y,state:GS_UNVISITED,note:''});
     });
+    if(parsed.length===0){
+      lg('error','GS','No valid points found in file');return;
+    }
+    if(isRecordedFile){
+      // recorded file: may have fewer than 144 points
+      // mark recorded points with recX/recY and highlight
+      parsed.forEach(p=>{ p.recX=p.x; p.recY=p.y; });
+      // merge into existing grid — only update points that are in the file
+      parsed.forEach(p=>{
+        const idx=gsPoints.findIndex(e=>e.col===p.col&&e.row===p.row);
+        if(idx>=0){
+          gsPoints[idx].x=p.x; gsPoints[idx].y=p.y;
+          gsPoints[idx].recX=p.x; gsPoints[idx].recY=p.y;
+        }
+      });
+      gsRebuildOrder(); gsRenderCanvas(); gsUpdateStatus(); gsAutoSave();
+      lg('sys','GS','Loaded '+parsed.length+' recorded positions from '+file.name);
+      // ask about origin
+      if(fileOriginX!==null && fileOriginY!==null){
+        gsShowOriginChoice(fileOriginX, fileOriginY);
+      }
+      evt.target.value='';
+      return;
+    }
     if(parsed.length!==144){
       lg('error','GS','Expected 144 points, got '+parsed.length);return;
     }
@@ -2126,27 +2180,45 @@ function gsLoadFile(evt){
 function gsOnCellClick(ptIdx){
   const p=gsPoints[ptIdx];
   gsPending=ptIdx;
-  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
-  const xMM=gsUnitToMM(p.x), yMM=gsUnitToMM(p.y);
-  const unit=document.getElementById('gs-unit')?document.getElementById('gs-unit').value:'um';
 
-  document.getElementById('gs-dlg-title').textContent='Move to point '+gsSeqNum(p.col,p.row)+'?';
-  document.getElementById('gs-dlg-body').textContent='Grid position: col '+p.col+', row '+p.row;
+  if(gsRecordMode){
+    // Record mode: confirm then record, no movement
+    document.getElementById('gs-dlg-title').textContent='Record position for point '+gsSeqNum(p.col,p.row)+'?';
+    document.getElementById('gs-dlg-body').textContent='Grid position: col '+p.col+', row '+p.row;
+    let preview = 'RECORD MODE — no stage movement\n\n';
+    preview += 'Will read POS? from both axes and store\n';
+    preview += 'as recorded coordinates for this point.\n\n';
+    preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n';
+    if(p.recX!==undefined)
+      preview += '\nPrevious record: X='+p.recX.toFixed(3)+' Y='+p.recY.toFixed(3)+' µm (will overwrite)';
+    document.getElementById('gs-dlg-coord').textContent = preview;
+    document.getElementById('gs-dlg-confirm').textContent = 'Record';
+    document.getElementById('gs-dlg-confirm').className = 'gf-btn gf-blue';
+  } else {
+    // Normal mode: confirm then move
+    const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+    const xMM=gsUnitToMM(p.x), yMM=gsUnitToMM(p.y);
+    const unit=document.getElementById('gs-unit')?document.getElementById('gs-unit').value:'um';
 
-  const pvX = xMM * gsInvertX();
-  const pvY = yMM * gsInvertY();
-  let preview = 'File: X='+p.x.toFixed(3)+' '+unit+', Y='+p.y.toFixed(3)+' '+unit+'\n';
-  preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n';
-  if(gsInvertX()===-1||gsInvertY()===-1)
-    preview += 'Invert: '+(gsInvertX()===-1?'X ':'')+(gsInvertY()===-1?'Y':'')+'\n';
-  preview += '\nCommands:\n';
-  preview += '  '+xid+' MOV '+ax+' '+gsOriginX.toFixed(6)+'  (→ origin X)\n';
-  preview += '  '+yid+' MOV '+ax+' '+gsOriginY.toFixed(6)+'  (→ origin Y)\n';
-  preview += '  [wait on-target]\n';
-  preview += '  '+xid+' MVR '+ax+' '+pvX.toFixed(6)+'  (offset X'+(gsInvertX()===-1?' inv':'')+')\n';
-  preview += '  '+yid+' MVR '+ax+' '+pvY.toFixed(6)+'  (offset Y'+(gsInvertY()===-1?' inv':'')+')';
+    document.getElementById('gs-dlg-title').textContent='Move to point '+gsSeqNum(p.col,p.row)+'?';
+    document.getElementById('gs-dlg-body').textContent='Grid position: col '+p.col+', row '+p.row;
 
-  document.getElementById('gs-dlg-coord').textContent = preview;
+    const pvX = xMM * gsInvertX();
+    const pvY = yMM * gsInvertY();
+    let preview = 'File: X='+p.x.toFixed(3)+' '+unit+', Y='+p.y.toFixed(3)+' '+unit+'\n';
+    preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n';
+    if(gsInvertX()===-1||gsInvertY()===-1)
+      preview += 'Invert: '+(gsInvertX()===-1?'X ':'')+(gsInvertY()===-1?'Y':'')+'\n';
+    preview += '\nCommands:\n';
+    preview += '  '+xid+' MOV '+ax+' '+gsOriginX.toFixed(6)+'  (→ origin X)\n';
+    preview += '  '+yid+' MOV '+ax+' '+gsOriginY.toFixed(6)+'  (→ origin Y)\n';
+    preview += '  [wait on-target]\n';
+    preview += '  '+xid+' MVR '+ax+' '+pvX.toFixed(6)+'  (offset X'+(gsInvertX()===-1?' inv':'')+')\n';
+    preview += '  '+yid+' MVR '+ax+' '+pvY.toFixed(6)+'  (offset Y'+(gsInvertY()===-1?' inv':'')+')';
+    document.getElementById('gs-dlg-coord').textContent = preview;
+    document.getElementById('gs-dlg-confirm').textContent = 'Move';
+    document.getElementById('gs-dlg-confirm').className = 'gf-btn gf-green';
+  }
   document.getElementById('gs-overlay').classList.add('show');
 }
 function gsOverlayCancel(){
@@ -2156,7 +2228,11 @@ function gsOverlayCancel(){
 async function gsOverlayConfirm(){
   document.getElementById('gs-overlay').classList.remove('show');
   if(gsPending<0) return;
-  await gsMoveToPoint(gsPending);
+  if(gsRecordMode){
+    await gsRecordPosition(gsPending);
+  } else {
+    await gsMoveToPoint(gsPending);
+  }
   gsPending=-1;
 }
 
@@ -2380,20 +2456,25 @@ async function gsRecordPosition(ptIdx){
 function gsExportRecorded(){
   const recorded=gsPoints.filter(p=>p.recX!==undefined);
   if(recorded.length===0){
-    lg('error','GS','No recorded positions — use "Record Position" on each point first');
+    lg('error','GS','No recorded positions — use Record Mode to record positions first');
     return;
   }
   let txt='';
+  txt+='# DOTIFS Recorded Positions\n';
+  txt+='# Date: '+new Date().toISOString().slice(0,10)+'\n';
+  txt+='# Origin_X: '+gsOriginX.toFixed(6)+'\n';
+  txt+='# Origin_Y: '+gsOriginY.toFixed(6)+'\n';
+  txt+='# Recorded: '+recorded.length+'/144\n';
+  txt+='# Format: col row X_um Y_um\n';
   gsPoints.forEach(p=>{
-    const rx=p.recX!==undefined?p.recX:0;
-    const ry=p.recY!==undefined?p.recY:0;
-    txt+=p.col+' '+p.row+' '+rx.toFixed(6)+' '+ry.toFixed(6)+'\n';
+    if(p.recX===undefined) return;  // only export recorded points
+    txt+=p.col+' '+p.row+' '+p.recX.toFixed(6)+' '+p.recY.toFixed(6)+'\n';
   });
   const blob=new Blob([txt],{type:'text/plain'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
-  a.download='MLA_recorded_positions_'+new Date().toISOString().slice(0,10)+'.txt';
+  a.download='MLA_recorded_'+new Date().toISOString().slice(0,10)+'.txt';
   a.click();
   URL.revokeObjectURL(url);
   lg('sys','GS','Exported '+recorded.length+'/144 recorded positions');
@@ -2421,6 +2502,55 @@ function gsSaveNote(ptIdx){
 }
 
 // ── edit mode ────────────────────────────────────────────────
+// ── origin choice for recorded files ─────────────────────────
+let gsFileOriginX=0, gsFileOriginY=0;
+
+function gsShowOriginChoice(ox, oy){
+  gsFileOriginX=ox; gsFileOriginY=oy;
+  document.getElementById('origin-choice-body').textContent=
+    'This file was recorded with a reference origin.';
+  document.getElementById('origin-choice-info').textContent=
+    'Recorded origin: X='+ox.toFixed(6)+' mm, Y='+oy.toFixed(6)+' mm\n\n'+
+    'Use Same Origin:\n  Sets origin to the recorded values.\n  Use if stage is in same physical setup.\n\n'+
+    'Set New Origin:\n  Opens "Set Your Origin" panel.\n  Use if MLA is mounted at a different position.\n  Relative offsets stay the same.';
+  document.getElementById('origin-choice-overlay').classList.add('show');
+}
+
+function gsOriginChoiceSame(){
+  document.getElementById('origin-choice-overlay').classList.remove('show');
+  gsOriginX=gsFileOriginX;
+  gsOriginY=gsFileOriginY;
+  gsOriginSet=true;
+  jogUpdateOriginDisplay();
+  gsAutoSave();
+  lg('sys','GS','Origin set from file: X='+gsOriginX.toFixed(6)+' Y='+gsOriginY.toFixed(6));
+}
+
+function gsOriginChoiceNew(){
+  document.getElementById('origin-choice-overlay').classList.remove('show');
+  lg('sys','GS','Set a new origin — recorded offsets will be used from your new origin');
+  gsOpenJog();
+}
+
+function gsToggleRecordMode(){
+  gsRecordMode=!gsRecordMode;
+  const btn=document.getElementById('gf-rec-btn');
+  if(btn){
+    if(gsRecordMode){
+      btn.textContent='🟢 Record: ON';
+      btn.style.background='var(--amber)';
+      btn.style.color='#0e1117';
+      btn.style.borderColor='var(--amber)';
+    } else {
+      btn.textContent='🔴 Record: OFF';
+      btn.style.background='transparent';
+      btn.style.color='var(--text2)';
+      btn.style.borderColor='var(--border)';
+    }
+  }
+  lg('sys','GS','Record mode: '+(gsRecordMode?'ON — click grid points to record position':'OFF'));
+}
+
 function gsToggleEdit(){
   gsEditMode=!gsEditMode;
   document.getElementById('gf-edit-btn').textContent='Edit Mode: '+(gsEditMode?'ON':'OFF');
