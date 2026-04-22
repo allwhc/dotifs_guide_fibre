@@ -1356,6 +1356,12 @@
         <span class="gf-lbl">mm/s</span>
         <button class="gf-btn gf-blue" onclick="gsApplyVelocity()" title="Apply velocity to both axes (sends VEL command)">Apply</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+        <span class="gf-lbl">Move</span>
+        <select class="gf-sel" id="gs-move-mode" onchange="gsAxisSave()" title="Direct MOV: faster, one move per point. Via Origin: safer, returns to origin first">
+          <option value="direct" selected>Direct MOV (fast)</option>
+          <option value="via-origin">Via Origin (safe)</option>
+        </select>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn" id="gf-rec-btn" onclick="gsToggleRecordMode()"
                 style="background:transparent;color:var(--text2);border:1px solid var(--border)">🔴 Record: OFF</button>
         <button class="gf-btn gf-purple" id="gf-edit-btn" onclick="gsToggleEdit()">Edit Mode: OFF</button>
@@ -2283,6 +2289,8 @@ function gsAxisSave(){
   if(iy) localStorage.setItem('gs_invert_y', iy.checked?'1':'0');
   const ve = document.getElementById('gs-vel');
   if(ve) localStorage.setItem('gs_vel', ve.value);
+  const mm = document.getElementById('gs-move-mode');
+  if(mm) localStorage.setItem('gs_move_mode', mm.value);
 }
 function gsLoadSettings(){
   const xi=localStorage.getItem('gs_x_id');
@@ -2303,6 +2311,8 @@ function gsLoadSettings(){
   if(iy==='1'){ const el=document.getElementById('gs-invert-y'); if(el) el.checked=true; }
   const ve=localStorage.getItem('gs_vel');
   if(ve){ const el=document.getElementById('gs-vel'); if(el) el.value=ve; }
+  const mm=localStorage.getItem('gs_move_mode');
+  if(mm){ const el=document.getElementById('gs-move-mode'); if(el) el.value=mm; }
 }
 function gsXID()    { return parseInt(document.getElementById('gs-x-id').value)||1; }
 function gsYID()    { return parseInt(document.getElementById('gs-y-id').value)||2; }
@@ -2477,16 +2487,25 @@ function gsOnCellClick(ptIdx){
 
     const pvX = xMM * gsInvertX();
     const pvY = yMM * gsInvertY();
+    const mode = document.getElementById('gs-move-mode')?.value || 'direct';
     let preview = 'File: X='+p.x.toFixed(3)+' '+unit+', Y='+p.y.toFixed(3)+' '+unit+'\n';
     preview += 'Origin: X='+gsOriginX.toFixed(3)+', Y='+gsOriginY.toFixed(3)+' mm\n';
+    preview += 'Mode: '+(mode==='direct'?'Direct MOV (fast)':'Via Origin (safe)')+'\n';
     if(gsInvertX()===-1||gsInvertY()===-1)
       preview += 'Invert: '+(gsInvertX()===-1?'X ':'')+(gsInvertY()===-1?'Y':'')+'\n';
     preview += '\nCommands:\n';
-    preview += '  '+xid+' MOV '+ax+' '+gsOriginX.toFixed(6)+'  (→ origin X)\n';
-    preview += '  '+yid+' MOV '+ax+' '+gsOriginY.toFixed(6)+'  (→ origin Y)\n';
-    preview += '  [wait on-target]\n';
-    preview += '  '+xid+' MVR '+ax+' '+pvX.toFixed(6)+'  (offset X'+(gsInvertX()===-1?' inv':'')+')\n';
-    preview += '  '+yid+' MVR '+ax+' '+pvY.toFixed(6)+'  (offset Y'+(gsInvertY()===-1?' inv':'')+')';
+    if(mode==='via-origin'){
+      preview += '  '+xid+' MOV '+ax+' '+gsOriginX.toFixed(6)+'  (→ origin X)\n';
+      preview += '  '+yid+' MOV '+ax+' '+gsOriginY.toFixed(6)+'  (→ origin Y)\n';
+      preview += '  [wait on-target]\n';
+      preview += '  '+xid+' MVR '+ax+' '+pvX.toFixed(6)+'  (offset X'+(gsInvertX()===-1?' inv':'')+')\n';
+      preview += '  '+yid+' MVR '+ax+' '+pvY.toFixed(6)+'  (offset Y'+(gsInvertY()===-1?' inv':'')+')';
+    } else {
+      const absX = gsOriginX + pvX;
+      const absY = gsOriginY + pvY;
+      preview += '  '+xid+' MOV '+ax+' '+absX.toFixed(6)+'  (absolute X)\n';
+      preview += '  '+yid+' MOV '+ax+' '+absY.toFixed(6)+'  (absolute Y)';
+    }
     document.getElementById('gs-dlg-coord').textContent = preview;
     document.getElementById('gs-dlg-confirm').textContent = 'Move';
     document.getElementById('gs-dlg-confirm').className = 'gf-btn gf-green';
@@ -2587,26 +2606,40 @@ async function gsMoveToPoint(ptIdx){
 
   gsWaitingForONT = true;
 
-  // Always MVR from origin
   if(!gsOriginSet){lg('error','ERR','Origin not set — use Set Your Origin first');gsWaitingForONT=false;return;}
   // apply universal velocity before moving
   const vel = gsGetVel();
   await send(xid+' VEL '+ax+' '+vel.toFixed(4));
   await send(yid+' VEL '+ax+' '+vel.toFixed(4));
-  lg('info','GS','Going to origin first… @ '+vel+' mm/s');
-  document.getElementById('gf-move-st').textContent='→ origin…';
-  await gsSend(xid+' MOV '+ax+' '+gsOriginX.toFixed(6), 'origin X');
-  await gsSend(yid+' MOV '+ax+' '+gsOriginY.toFixed(6), 'origin Y');
-  await gsWaitONT(xid, yid, ax, 30000);
-  // MVR by file offset from origin
+
   const mvrX = xMM * gsInvertX();
   const mvrY = yMM * gsInvertY();
-  lg('info','GS','At origin, MVR to point '+gsSeqNum(p.col,p.row)
-    +' offset=('+mvrX.toFixed(6)+' mm, '+mvrY.toFixed(6)+' mm)'
-    +(gsInvertX()===-1||gsInvertY()===-1?' [inverted]':''));
-  document.getElementById('gf-move-st').textContent='MVR → point…';
-  await gsSend(xid+' MVR '+ax+' '+mvrX.toFixed(6), 'offset X = '+p.x.toFixed(1)+' '+unit+(gsInvertX()===-1?' [inv]':''));
-  await gsSend(yid+' MVR '+ax+' '+mvrY.toFixed(6), 'offset Y = '+p.y.toFixed(1)+' '+unit+(gsInvertY()===-1?' [inv]':''));
+  const mode = document.getElementById('gs-move-mode')?.value || 'direct';
+
+  if(mode === 'via-origin'){
+    // Safe mode: MOV to origin first, then MVR by offset
+    lg('info','GS','[Via Origin] Going to origin first… @ '+vel+' mm/s');
+    document.getElementById('gf-move-st').textContent='→ origin…';
+    await gsSend(xid+' MOV '+ax+' '+gsOriginX.toFixed(6), 'origin X');
+    await gsSend(yid+' MOV '+ax+' '+gsOriginY.toFixed(6), 'origin Y');
+    await gsWaitONT(xid, yid, ax, 30000);
+    lg('info','GS','At origin, MVR to point '+gsSeqNum(p.col,p.row)
+      +' offset=('+mvrX.toFixed(6)+' mm, '+mvrY.toFixed(6)+' mm)'
+      +(gsInvertX()===-1||gsInvertY()===-1?' [inverted]':''));
+    document.getElementById('gf-move-st').textContent='MVR → point…';
+    await gsSend(xid+' MVR '+ax+' '+mvrX.toFixed(6), 'offset X = '+p.x.toFixed(1)+' '+unit+(gsInvertX()===-1?' [inv]':''));
+    await gsSend(yid+' MVR '+ax+' '+mvrY.toFixed(6), 'offset Y = '+p.y.toFixed(1)+' '+unit+(gsInvertY()===-1?' [inv]':''));
+  } else {
+    // Direct mode: single MOV to absolute calculated position
+    const absX = gsOriginX + mvrX;
+    const absY = gsOriginY + mvrY;
+    lg('info','GS','[Direct MOV] To point '+gsSeqNum(p.col,p.row)
+      +' absolute=('+absX.toFixed(6)+' mm, '+absY.toFixed(6)+' mm) @ '+vel+' mm/s'
+      +(gsInvertX()===-1||gsInvertY()===-1?' [inverted]':''));
+    document.getElementById('gf-move-st').textContent='MOV → point…';
+    await gsSend(xid+' MOV '+ax+' '+absX.toFixed(6), 'absolute X');
+    await gsSend(yid+' MOV '+ax+' '+absY.toFixed(6), 'absolute Y');
+  }
 
   // poll ONT? up to 30s
   await gsWaitONT(xid, yid, ax, 30000);
