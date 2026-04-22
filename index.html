@@ -1349,6 +1349,13 @@
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn gf-amber" onclick="gsMoveToOrigin()" title="Move both axes back to set origin">⌂ Go to Origin</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+        <span class="gf-lbl">Speed</span>
+        <input class="gf-inp" id="gs-vel" type="number" value="0.1" min="0.001" step="0.01"
+               style="width:60px" title="Universal velocity for all grid moves and nudges (mm/s)"
+               onchange="gsAxisSave()">
+        <span class="gf-lbl">mm/s</span>
+        <button class="gf-btn gf-blue" onclick="gsApplyVelocity()" title="Apply velocity to both axes (sends VEL command)">Apply</button>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
         <button class="gf-btn" id="gf-rec-btn" onclick="gsToggleRecordMode()"
                 style="background:transparent;color:var(--text2);border:1px solid var(--border)">🔴 Record: OFF</button>
         <button class="gf-btn gf-purple" id="gf-edit-btn" onclick="gsToggleEdit()">Edit Mode: OFF</button>
@@ -2274,6 +2281,8 @@ function gsAxisSave(){
   if(ix) localStorage.setItem('gs_invert_x', ix.checked?'1':'0');
   const iy = document.getElementById('gs-invert-y');
   if(iy) localStorage.setItem('gs_invert_y', iy.checked?'1':'0');
+  const ve = document.getElementById('gs-vel');
+  if(ve) localStorage.setItem('gs_vel', ve.value);
 }
 function gsLoadSettings(){
   const xi=localStorage.getItem('gs_x_id');
@@ -2292,6 +2301,8 @@ function gsLoadSettings(){
   if(ix==='1'){ const el=document.getElementById('gs-invert-x'); if(el) el.checked=true; }
   const iy=localStorage.getItem('gs_invert_y');
   if(iy==='1'){ const el=document.getElementById('gs-invert-y'); if(el) el.checked=true; }
+  const ve=localStorage.getItem('gs_vel');
+  if(ve){ const el=document.getElementById('gs-vel'); if(el) el.value=ve; }
 }
 function gsXID()    { return parseInt(document.getElementById('gs-x-id').value)||1; }
 function gsYID()    { return parseInt(document.getElementById('gs-y-id').value)||2; }
@@ -2525,12 +2536,30 @@ async function gsSend(cmd, label){
 }
 
 // ── move to origin ───────────────────────────────────────────
+// ── universal velocity ──────────────────────────────────────
+function gsGetVel(){
+  return parseFloat(document.getElementById('gs-vel')?.value) || 0.1;
+}
+
+async function gsApplyVelocity(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const vel=gsGetVel();
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
+  lg('sys','GS','Velocity applied: '+vel+' mm/s on both X and Y');
+}
+
 async function gsMoveToOrigin(){
   if(!connected){lg('error','ERR','Not connected');return;}
   if(!gsOriginSet){lg('error','ERR','Origin not set — use Set Your Origin first');return;}
   const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  // apply universal velocity before moving
+  const vel=gsGetVel();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
   document.getElementById('gf-move-st').textContent='Going to origin…';
-  lg('info','GS','Moving to origin: X='+gsOriginX.toFixed(6)+' Y='+gsOriginY.toFixed(6));
+  lg('info','GS','Moving to origin: X='+gsOriginX.toFixed(6)+' Y='+gsOriginY.toFixed(6)+' @ '+vel+' mm/s');
   await gsSend(xid+' MOV '+ax+' '+gsOriginX.toFixed(6), 'origin X');
   await gsSend(yid+' MOV '+ax+' '+gsOriginY.toFixed(6), 'origin Y');
   gsWaitingForONT = true;
@@ -2560,7 +2589,11 @@ async function gsMoveToPoint(ptIdx){
 
   // Always MVR from origin
   if(!gsOriginSet){lg('error','ERR','Origin not set — use Set Your Origin first');gsWaitingForONT=false;return;}
-  lg('info','GS','Going to origin first…');
+  // apply universal velocity before moving
+  const vel = gsGetVel();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
+  lg('info','GS','Going to origin first… @ '+vel+' mm/s');
   document.getElementById('gf-move-st').textContent='→ origin…';
   await gsSend(xid+' MOV '+ax+' '+gsOriginX.toFixed(6), 'origin X');
   await gsSend(yid+' MOV '+ax+' '+gsOriginY.toFixed(6), 'origin Y');
@@ -2610,6 +2643,9 @@ async function nudge(axis, dir){
   const dist = totalMM * dir * inv;
   const id   = axis==='x' ? gsXID() : gsYID();
   const ax   = gsAxisNum();
+  // apply universal velocity before nudge
+  const vel  = gsGetVel();
+  await send(id+' VEL '+ax+' '+vel.toFixed(4));
   const cmd  = `${id} MVR ${ax} ${dist.toFixed(6)}`;
   await send(cmd);
   const el = document.getElementById('nudge-last-cmd');
