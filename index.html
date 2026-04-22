@@ -1567,6 +1567,18 @@
         <button class="jog-btn jog-ghost" onclick="ggBReadPos()" style="align-self:center">⟳ Read</button>
       </div>
       <div class="jog-step-row" style="margin-top:6px">
+        <span class="jog-pos-lbl">Velocity (mm/s)</span>
+        <input class="jog-inp" id="ggB-vel" type="number" value="0.1" min="0.001" step="0.01" style="width:70px">
+        <button class="jog-btn jog-set" onclick="ggBSetVel()">Set Both</button>
+        <div class="jog-presets">
+          <button class="jog-preset" onclick="document.getElementById('ggB-vel').value=0.05">0.05</button>
+          <button class="jog-preset active" onclick="document.getElementById('ggB-vel').value=0.1">0.1</button>
+          <button class="jog-preset" onclick="document.getElementById('ggB-vel').value=0.5">0.5</button>
+          <button class="jog-preset" onclick="document.getElementById('ggB-vel').value=1">1</button>
+        </div>
+      </div>
+      <div id="ggB-vel-status" style="font-size:10px;color:var(--text2);padding:0 12px"></div>
+      <div class="jog-step-row" style="margin-top:6px">
         <span class="jog-pos-lbl">Step (µm)</span>
         <input class="jog-inp" id="ggB-step" type="number" value="10" min="0.1" step="0.1">
         <div class="jog-presets">
@@ -1645,6 +1657,21 @@
     </div>
 
     <!-- step size & nudge -->
+    <div class="jog-section">
+      <div class="jog-sec-title">Velocity (mm/s)</div>
+      <div class="jog-step-row">
+        <input class="jog-inp" id="gg-vel" type="number" value="0.1" min="0.001" step="0.01" style="width:80px">
+        <button class="jog-btn jog-set" onclick="ggSetVel()">Set Both Axes</button>
+        <div class="jog-presets">
+          <button class="jog-preset" onclick="document.getElementById('gg-vel').value=0.05">0.05</button>
+          <button class="jog-preset active" onclick="document.getElementById('gg-vel').value=0.1">0.1</button>
+          <button class="jog-preset" onclick="document.getElementById('gg-vel').value=0.5">0.5</button>
+          <button class="jog-preset" onclick="document.getElementById('gg-vel').value=1">1</button>
+        </div>
+      </div>
+      <div id="gg-vel-status" style="font-size:10px;color:var(--text2);padding:4px 12px"></div>
+    </div>
+
     <div class="jog-section">
       <div class="jog-sec-title">Nudge Controls</div>
       <div class="jog-step-row">
@@ -2862,6 +2889,17 @@ async function ggBReadPos(){
   } finally { ggBPolling = false; }
 }
 
+async function ggBSetVel(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const vel=parseFloat(document.getElementById('ggB-vel').value)||0.1;
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
+  const st=document.getElementById('ggB-vel-status');
+  if(st) st.textContent='Velocity set: '+vel+' mm/s on both X and Y';
+  lg('sys','GG-B','Velocity set to '+vel+' mm/s on both axes');
+}
+
 async function ggBMove(axis, dir){
   if(!connected) return;
   const step = parseFloat(document.getElementById('ggB-step').value) || 10;
@@ -3055,6 +3093,17 @@ async function ggReadPos(){
       if(el&&!isNaN(parseFloat(v))) el.textContent=parseFloat(v).toFixed(4);
     }
   } finally { ggPolling=false; }
+}
+
+async function ggSetVel(){
+  if(!connected){lg('error','ERR','Not connected');return;}
+  const vel=parseFloat(document.getElementById('gg-vel').value)||0.1;
+  const xid=gsXID(),yid=gsYID(),ax=gsAxisNum();
+  await send(xid+' VEL '+ax+' '+vel.toFixed(4));
+  await send(yid+' VEL '+ax+' '+vel.toFixed(4));
+  const st=document.getElementById('gg-vel-status');
+  if(st) st.textContent='Velocity set: '+vel+' mm/s on both X and Y';
+  lg('sys','GG','Velocity set to '+vel+' mm/s on both axes');
 }
 
 async function ggMove(axis, dir){
