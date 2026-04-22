@@ -1538,6 +1538,18 @@
         <input class="jog-inp" id="ggB-scale" type="number" value="3.45" step="0.01" min="0.01" style="width:90px" oninput="ggBUpdateResult()">
         <span style="font-size:11px;color:var(--text2)">µm/pixel  (default: 3.45 — Amit's formula)</span>
       </div>
+      <div style="padding:4px 12px 8px;display:flex;align-items:center;gap:6px">
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="ggB-invert-y" checked onchange="ggBUpdateResult()">
+          Invert Y (image Y+ goes down, stage Y+ goes up)
+        </label>
+      </div>
+      <div style="padding:0 12px 8px;display:flex;align-items:center;gap:6px">
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="ggB-invert-x" onchange="ggBUpdateResult()">
+          Invert X (rare — flip horizontal direction)
+        </label>
+      </div>
     </div>
 
     <!-- Step 3: Record origin -->
@@ -2934,9 +2946,12 @@ function ggBUpdateResult(){
   const diag = p00 && p01 ? distUm(p00,p01) : 0;
   const span = p00 && p11_11 ? distUm(p00,p11_11) : 0;
 
+  const invX = document.getElementById('ggB-invert-x')?.checked;
+  const invY = document.getElementById('ggB-invert-y')?.checked;
   res.style.display = 'block';
   calc.innerHTML =
     'Scale factor: <b>'+scale.toFixed(2)+' µm/pixel</b><br>'+
+    'Invert: '+(invX?'X ':'')+(invY?'Y':'')+(!invX&&!invY?'none':'')+'<br>'+
     'Origin: <b>X='+ggBOrigin.x.toFixed(4)+' Y='+ggBOrigin.y.toFixed(4)+' mm</b><br>'+
     'Row pitch (0,0)→(1,0): <b>'+rowPitch.toFixed(1)+' µm</b><br>'+
     'Hex diagonal (0,0)→(0,1): <b>'+diag.toFixed(1)+' µm</b><br>'+
@@ -2951,8 +2966,9 @@ function ggBGenerate(){
 
   // build gsPoints — coordinates in µm relative to origin
   // applying scale to convert pixel offsets to µm
-  // also apply axis inversion
-  const invX = gsInvertX(), invY = gsInvertY();
+  // use Option B's own invert checkboxes (default: invert Y on)
+  const invX = document.getElementById('ggB-invert-x')?.checked ? -1 : 1;
+  const invY = document.getElementById('ggB-invert-y')?.checked ? -1 : 1;
   gsPoints = [];
   // sort by row then col for consistency
   const sorted = [...ggBPixels].sort((a,b)=>a.row-b.row || a.col-b.col);
