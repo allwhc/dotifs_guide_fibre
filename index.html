@@ -1051,6 +1051,7 @@
     <button class="h-tab active" id="tab-cmds"    onclick="switchTab('cmds')">GCS Commands</button>
     <button class="h-tab"        id="tab-monitor" onclick="switchTab('monitor')">Live Dashboard</button>
     <button class="h-tab"        id="tab-grid"    onclick="gsCheckPassword()">Grid Scan 🔒</button>
+    <button class="h-tab"        id="tab-quick"   onclick="switchTab('quick')">⚡ QuickGrid</button>
   </div>
   <div class="hdr-right">
     <select id="baud">
@@ -1460,6 +1461,216 @@
     </div>
 
   </div><!-- end grid-full -->
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- QUICKGRID PANEL — simplified flow                         -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="quick-full" style="display:none;flex:1;flex-direction:column;overflow:hidden;background:var(--bg);">
+
+    <!-- step indicator -->
+    <div style="padding:14px 20px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em">Steps:</span>
+
+      <div style="display:flex;align-items:center;gap:6px;flex:1">
+        <!-- step 1: connect -->
+        <button class="gf-btn" id="qg-step1" onclick="qgConnect()"
+                style="display:flex;align-items:center;gap:6px;padding:6px 14px;border:2px solid var(--border);background:var(--bg3);color:var(--text2)">
+          <span style="width:18px;height:18px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600" id="qg-s1-dot">1</span>
+          <span>Connect</span>
+        </button>
+        <span style="color:var(--text2)">—</span>
+
+        <!-- step 2: set origin -->
+        <button class="gf-btn" id="qg-step2" onclick="qgSetOrigin()"
+                style="display:flex;align-items:center;gap:6px;padding:6px 14px;border:2px solid var(--border);background:var(--bg3);color:var(--text2)">
+          <span style="width:18px;height:18px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600" id="qg-s2-dot">2</span>
+          <span>Set Origin</span>
+        </button>
+        <span style="color:var(--text2)">—</span>
+
+        <!-- step 3: load file -->
+        <button class="gf-btn" id="qg-step3" onclick="qgLoadFile()"
+                style="display:flex;align-items:center;gap:6px;padding:6px 14px;border:2px solid var(--border);background:var(--bg3);color:var(--text2)">
+          <span style="width:18px;height:18px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600" id="qg-s3-dot">3</span>
+          <span>Load File</span>
+        </button>
+        <span style="color:var(--text2)">—</span>
+
+        <!-- step 4: ready -->
+        <div class="gf-btn" id="qg-step4"
+                style="display:flex;align-items:center;gap:6px;padding:6px 14px;border:2px solid var(--border);background:var(--bg3);color:var(--text2)">
+          <span style="width:18px;height:18px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600" id="qg-s4-dot">4</span>
+          <span>Ready</span>
+        </div>
+      </div>
+
+      <input type="file" id="qg-file-input" accept=".txt" style="display:none" onchange="qgFileChosen(event)">
+    </div>
+
+    <!-- speed + ack errors bar -->
+    <div style="padding:8px 20px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <span class="gf-lbl">Speed</span>
+      <input class="gf-inp" id="qg-vel" type="number" value="0.1" min="0.001" step="0.01" style="width:70px"
+             oninput="document.getElementById('gs-vel').value=this.value;gsAxisSave()">
+      <span class="gf-lbl">mm/s</span>
+      <button class="gf-btn gf-blue" onclick="qgApplySpeed()" style="padding:4px 12px">Apply</button>
+
+      <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
+
+      <button class="gf-btn" onclick="qgAckAllErrors()" style="background:var(--amber);color:#0e1117;border-color:var(--amber);padding:4px 12px"
+              title="Read ERR? on all controllers, then send INI to clear any error state">⚠ Acknowledge All Errors</button>
+
+      <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
+
+      <span class="gf-lbl">Origin:</span><span class="gf-sval" style="color:var(--purple)" id="qg-origin-disp">not set</span>
+
+      <div style="flex:1"></div>
+
+      <span class="gf-lbl">Done:</span><span class="gf-sval" style="color:var(--green)" id="qg-done">0</span><span class="gf-lbl">/144</span>
+      <span class="gf-lbl">Skip:</span><span class="gf-sval" style="color:var(--red)" id="qg-skipped">0</span>
+    </div>
+
+    <!-- advanced (collapsed) -->
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;">
+      <div style="padding:6px 20px;cursor:pointer;font-size:11px;color:var(--text2);user-select:none" onclick="qgToggleAdvanced()" id="qg-adv-header">
+        ▾ Advanced Settings
+      </div>
+      <div id="qg-advanced" style="display:none;padding:8px 20px;border-top:1px solid var(--border);display:none;flex-wrap:wrap;gap:8px;align-items:center;font-size:11px">
+        <span class="gf-lbl">X ctrl</span>
+        <select class="gf-sel" id="qg-x-id" onchange="document.getElementById('gs-x-id').value=this.value;gsAxisSave()">
+          <option value="1" selected>ID 1</option><option value="2">ID 2</option>
+          <option value="3">ID 3</option><option value="4">ID 4</option>
+        </select>
+        <span class="gf-lbl">Y ctrl</span>
+        <select class="gf-sel" id="qg-y-id" onchange="document.getElementById('gs-y-id').value=this.value;gsAxisSave()">
+          <option value="1">ID 1</option><option value="2" selected>ID 2</option>
+          <option value="3">ID 3</option><option value="4">ID 4</option>
+        </select>
+        <span class="gf-lbl">Axis</span>
+        <input class="gf-inp" id="qg-axis" type="text" value="1" style="width:36px"
+               oninput="document.getElementById('gs-axis-num').value=this.value;gsAxisSave()">
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="qg-invert-x" onchange="document.getElementById('gs-invert-x').checked=this.checked;gsAxisSave()">Invert X
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="qg-invert-y" onchange="document.getElementById('gs-invert-y').checked=this.checked;gsAxisSave()">Invert Y
+        </label>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <span class="gf-lbl">Move</span>
+        <select class="gf-sel" id="qg-move-mode" onchange="document.getElementById('gs-move-mode').value=this.value;gsAxisSave()">
+          <option value="direct" selected>Direct MOV (fast)</option>
+          <option value="via-origin">Via Origin (safe)</option>
+        </select>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <button class="gf-btn gf-amber" onclick="gsMoveToOrigin()" style="padding:3px 10px">⌂ Go to Origin</button>
+        <button class="gf-btn gf-green" onclick="gsNextPoint()" style="padding:3px 10px">▶ Next Point</button>
+        <button class="gf-btn gf-ghost" onclick="if(confirm('Reset all grid progress?'))gsResetProgress()" style="padding:3px 10px">↺ Reset</button>
+      </div>
+    </div>
+
+    <!-- main body: grid canvas + right panel (reuse grid scan rendering) -->
+    <div style="flex:1;display:flex;overflow:hidden;">
+      <div style="flex:1;overflow:auto;padding:20px;display:flex;align-items:flex-start;justify-content:flex-start;background:var(--bg);">
+        <canvas id="qg-canvas" style="cursor:pointer;display:block"></canvas>
+      </div>
+      <div style="width:260px;flex-shrink:0;border-left:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;overflow:hidden">
+        <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--border)">Point Details</div>
+        <div id="qg-det-body" style="padding:10px 12px;font-size:11px;overflow-y:auto;flex:1">
+          <div style="color:var(--text2)">Click a point on the grid</div>
+        </div>
+
+        <!-- nudge controls -->
+        <div style="border-top:1px solid var(--border);padding:10px 12px;background:var(--bg3);flex-shrink:0;">
+          <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Nudge (Live Position)</div>
+          <div style="font-size:10px;color:var(--text2);margin-bottom:6px">
+            X: <span style="color:var(--blue);font-family:var(--mono)" id="qg-livex">—</span>
+            Y: <span style="color:var(--blue);font-family:var(--mono)" id="qg-livey">—</span>
+            <button class="gf-btn gf-ghost" onclick="qgReadPos()" style="padding:1px 6px;font-size:9px;margin-left:4px">⟳</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
+            <span style="font-size:10px;color:var(--text2);width:30px">Step</span>
+            <input type="number" id="qg-nudge-um" value="1" step="0.1" min="0.01"
+                   style="width:60px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:11px;text-align:center;outline:none"
+                   oninput="document.getElementById('nudge-step-um').value=this.value">
+            <span style="font-size:10px;color:var(--text2)">µm</span>
+            <input type="number" id="qg-nudge-n" value="1" step="1" min="1"
+                   style="width:46px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:var(--mono);font-size:11px;text-align:center;outline:none"
+                   oninput="document.getElementById('nudge-steps').value=this.value">
+            <span style="font-size:10px;color:var(--text2)">×</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <button class="gf-btn gf-blue" onclick="qgNudge('y',-1)" style="width:60px;padding:5px 0;font-size:14px">▲</button>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button class="gf-btn gf-blue" onclick="qgNudge('x',-1)" style="width:60px;padding:5px 0;font-size:14px">◄</button>
+              <span style="font-size:9px;color:var(--amber);width:50px;text-align:center;font-weight:600" id="qg-nudge-val">1µm</span>
+              <button class="gf-btn gf-blue" onclick="qgNudge('x',1)" style="width:60px;padding:5px 0;font-size:14px">►</button>
+            </div>
+            <button class="gf-btn gf-blue" onclick="qgNudge('y',1)" style="width:60px;padding:5px 0;font-size:14px">▼</button>
+          </div>
+          <div style="display:flex;gap:3px;margin-top:6px;flex-wrap:wrap">
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(0.1)" style="padding:2px 5px;font-size:9px">0.1</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(1)" style="padding:2px 5px;font-size:9px">1</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(5)" style="padding:2px 5px;font-size:9px">5</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(10)" style="padding:2px 5px;font-size:9px">10</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(50)" style="padding:2px 5px;font-size:9px">50</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(65)" style="padding:2px 5px;font-size:9px">65</button>
+            <button class="gf-btn gf-ghost" onclick="qgSetNudge(75)" style="padding:2px 5px;font-size:9px">75</button>
+            <span style="font-size:9px;color:var(--text2);align-self:center">µm</span>
+          </div>
+          <div style="font-size:9px;color:var(--text2);margin-top:6px" id="qg-last-cmd"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end quick-full -->
+
+  <!-- QuickGrid Set Origin confirm overlay -->
+  <div class="jog-overlay" id="qg-origin-overlay">
+    <div class="jog-dialog" style="width:380px">
+      <div class="jog-header">
+        <span class="jog-title">🎯 Lock Origin?</span>
+        <button class="jog-close" onclick="document.getElementById('qg-origin-overlay').classList.remove('show')">✕</button>
+      </div>
+      <div style="padding:16px">
+        <div style="font-size:12px;color:var(--text);margin-bottom:10px">Lock origin at current stage position?</div>
+        <div style="padding:10px;background:var(--bg3);border-radius:4px;font-family:var(--mono);font-size:12px;margin-bottom:8px">
+          X = <span style="color:var(--amber)" id="qg-org-x">—</span> mm<br>
+          Y = <span style="color:var(--amber)" id="qg-org-y">—</span> mm
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:14px">This will become grid (0,0). All grid points are calculated relative to this position.</div>
+        <div style="display:flex;gap:6px">
+          <button class="gf-btn gf-ghost" style="flex:1" onclick="document.getElementById('qg-origin-overlay').classList.remove('show')">Cancel</button>
+          <button class="gf-btn gf-amber" id="qg-org-mvbtn" style="flex:1;display:none" onclick="qgGoToOrigin()">⌂ Move to Origin</button>
+          <button class="gf-btn gf-green" style="flex:1" onclick="qgConfirmLock()">🔒 Lock</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QuickGrid: position file → origin choice overlay -->
+  <div class="jog-overlay" id="qg-posorigin-overlay">
+    <div class="jog-dialog" style="width:420px">
+      <div class="jog-header">
+        <span class="jog-title">Position File Loaded — Choose Origin</span>
+        <button class="jog-close" onclick="document.getElementById('qg-posorigin-overlay').classList.remove('show')">✕</button>
+      </div>
+      <div style="padding:16px">
+        <div style="font-size:12px;color:var(--text);margin-bottom:10px">This position file has an origin reference saved:</div>
+        <div style="padding:10px;background:var(--bg3);border-radius:4px;font-family:var(--mono);font-size:12px;margin-bottom:14px">
+          File origin: X = <span style="color:var(--amber)" id="qg-pos-x">—</span>, Y = <span style="color:var(--amber)" id="qg-pos-y">—</span> mm
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-bottom:14px">
+          Use Same Origin: file's origin will be used (same physical setup).<br>
+          Use Current Origin: your currently locked origin will be used (different mount).
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="gf-btn gf-green" style="flex:1" onclick="qgPosUseFileOrigin()">Use Same Origin</button>
+          <button class="gf-btn gf-purple" style="flex:1" onclick="qgPosUseCurrentOrigin()">Use Current Origin</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <!-- MOVE CONFIRMATION OVERLAY -->
@@ -3986,10 +4197,11 @@ function switchTab(name){
   const log    = document.getElementById('log');
   const gf     = document.getElementById('grid-full');
   const db     = document.getElementById('panel-monitor');
+  const qg     = document.getElementById('quick-full');
   const footer = document.querySelector('footer');
 
   // reset all panels
-  ['cmds','monitor','grid'].forEach(t=>{
+  ['cmds','monitor','grid','quick'].forEach(t=>{
     const tb = document.getElementById('tab-'+t);
     if(tb) tb.classList.toggle('active', t===name);
   });
@@ -3999,6 +4211,7 @@ function switchTab(name){
   if(log)    log.style.display    = 'none';
   if(gf)     gf.style.display     = 'none';
   if(db)     db.style.display     = 'none';
+  if(qg)     qg.style.display     = 'none';
   if(footer) footer.style.display = 'none';
   document.body.style.gridTemplateColumns = '0 1fr';
 
@@ -4020,6 +4233,10 @@ function switchTab(name){
     // Tab 3: full-width grid scan
     if(gf) gf.style.display = 'flex';
     setTimeout(gsOnTabOpen, 30);
+  } else if(name==='quick'){
+    // Tab 4: QuickGrid
+    if(qg) qg.style.display = 'flex';
+    setTimeout(qgOnTabOpen, 30);
   }
 
   // stop dashboard polling when leaving monitor tab
@@ -4028,6 +4245,485 @@ function switchTab(name){
   }
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// QUICKGRID — simplified grid scan tab
+// ══════════════════════════════════════════════════════════════
+let qgPollTimer = null;
+let qgPolling   = false;
+let qgPendingPt = -1;
+
+function qgOnTabOpen(){
+  // sync values from the existing grid-scan settings so QuickGrid mirrors them
+  const ve = document.getElementById('gs-vel'); if(ve) document.getElementById('qg-vel').value = ve.value;
+  const xi = document.getElementById('gs-x-id'); if(xi) document.getElementById('qg-x-id').value = xi.value;
+  const yi = document.getElementById('gs-y-id'); if(yi) document.getElementById('qg-y-id').value = yi.value;
+  const ax = document.getElementById('gs-axis-num'); if(ax) document.getElementById('qg-axis').value = ax.value;
+  const ix = document.getElementById('gs-invert-x'); if(ix) document.getElementById('qg-invert-x').checked = ix.checked;
+  const iy = document.getElementById('gs-invert-y'); if(iy) document.getElementById('qg-invert-y').checked = iy.checked;
+  const mm = document.getElementById('gs-move-mode'); if(mm) document.getElementById('qg-move-mode').value = mm.value;
+
+  qgUpdateSteps();
+  qgRenderCanvas();
+  qgUpdateStatus();
+  qgUpdateOriginDisplay();
+
+  // start polling live position
+  if(qgPollTimer){ clearInterval(qgPollTimer); qgPollTimer=null; }
+  if(connected){
+    qgReadPos();
+    qgPollTimer = setInterval(qgReadPos, 1500);
+  }
+}
+
+// ── step indicator ──────────────────────────────────────────
+function qgUpdateSteps(){
+  const s1 = document.getElementById('qg-s1-dot');
+  const s2 = document.getElementById('qg-s2-dot');
+  const s3 = document.getElementById('qg-s3-dot');
+  const s4 = document.getElementById('qg-s4-dot');
+  const b1 = document.getElementById('qg-step1');
+  const b2 = document.getElementById('qg-step2');
+  const b3 = document.getElementById('qg-step3');
+  const b4 = document.getElementById('qg-step4');
+
+  function setActive(btn, dot, n){
+    if(!btn) return;
+    btn.style.background='var(--green)'; btn.style.color='#0e1117'; btn.style.borderColor='var(--green)';
+    if(dot){ dot.style.background='var(--bg)'; dot.style.color='var(--green)'; dot.textContent='✓'; }
+  }
+  function setInactive(btn, dot, n){
+    if(!btn) return;
+    btn.style.background='var(--bg3)'; btn.style.color='var(--text2)'; btn.style.borderColor='var(--border)';
+    if(dot){ dot.style.background='var(--bg)'; dot.style.color='var(--text2)'; dot.textContent=String(n); }
+  }
+
+  // step 1: connect
+  if(connected) setActive(b1, s1, 1); else setInactive(b1, s1, 1);
+
+  // step 2: origin
+  if(gsOriginSet) setActive(b2, s2, 2); else setInactive(b2, s2, 2);
+
+  // step 3: file loaded (any non-empty grid)
+  const fileLoaded = gsPoints.some(p=>p.x!==0||p.y!==0);
+  if(fileLoaded) setActive(b3, s3, 3); else setInactive(b3, s3, 3);
+
+  // step 4: ready (all three above)
+  if(connected && gsOriginSet && fileLoaded) setActive(b4, s4, 4); else setInactive(b4, s4, 4);
+}
+
+function qgUpdateOriginDisplay(){
+  const el = document.getElementById('qg-origin-disp');
+  if(!el) return;
+  if(gsOriginSet){
+    el.textContent = 'X='+gsOriginX.toFixed(4)+' Y='+gsOriginY.toFixed(4)+' 🔒';
+    el.style.color = 'var(--purple)';
+  } else {
+    el.textContent = 'not set';
+    el.style.color = 'var(--text2)';
+  }
+}
+
+function qgUpdateStatus(){
+  const done = gsPoints.filter(p=>p.state===GS_FIBRE||p.state===GS_NOFIBRE).length;
+  const skipped = gsPoints.filter(p=>p.state===GS_SKIPPED).length;
+  const d=document.getElementById('qg-done'); if(d) d.textContent=done;
+  const s=document.getElementById('qg-skipped'); if(s) s.textContent=skipped;
+}
+
+// ── step 1: connect ─────────────────────────────────────────
+async function qgConnect(){
+  if(connected){
+    lg('sys','QG','Already connected');
+    qgUpdateSteps();
+    return;
+  }
+  await toggleConn();
+  qgUpdateSteps();
+  if(connected){
+    qgReadPos();
+    if(qgPollTimer){ clearInterval(qgPollTimer); qgPollTimer=null; }
+    qgPollTimer = setInterval(qgReadPos, 1500);
+  }
+}
+
+// ── step 2: set origin ──────────────────────────────────────
+function qgSetOrigin(){
+  if(!connected){ lg('error','ERR','Connect first'); return; }
+  const xEl = document.getElementById('qg-livex');
+  const yEl = document.getElementById('qg-livey');
+  const xVal = xEl ? parseFloat(xEl.textContent) : NaN;
+  const yVal = yEl ? parseFloat(yEl.textContent) : NaN;
+  if(isNaN(xVal)||isNaN(yVal)){
+    lg('error','QG','Live position not available — wait for read'); return;
+  }
+  document.getElementById('qg-org-x').textContent = xVal.toFixed(4);
+  document.getElementById('qg-org-y').textContent = yVal.toFixed(4);
+  // show Move-to-Origin button only if origin already set
+  document.getElementById('qg-org-mvbtn').style.display = gsOriginSet ? '' : 'none';
+  document.getElementById('qg-origin-overlay').classList.add('show');
+}
+
+function qgConfirmLock(){
+  const xEl = document.getElementById('qg-org-x').textContent;
+  const yEl = document.getElementById('qg-org-y').textContent;
+  gsOriginX = parseFloat(xEl);
+  gsOriginY = parseFloat(yEl);
+  gsOriginSet = true;
+  jogUpdateOriginDisplay();
+  qgUpdateOriginDisplay();
+  gsAutoSave();
+  lg('sys','QG','Origin locked: X='+gsOriginX.toFixed(4)+' Y='+gsOriginY.toFixed(4)+' mm');
+  document.getElementById('qg-origin-overlay').classList.remove('show');
+  qgUpdateSteps();
+}
+
+async function qgGoToOrigin(){
+  document.getElementById('qg-origin-overlay').classList.remove('show');
+  await gsMoveToOrigin();
+}
+
+// ── step 3: load file (smart auto-detect) ───────────────────
+function qgLoadFile(){
+  if(!gsOriginSet){
+    if(!confirm('Origin not set yet. Load file anyway? (You can lock origin afterward.)')) return;
+  }
+  document.getElementById('qg-file-input').click();
+}
+
+let qgPendingPosFile = null;  // parsed points awaiting origin choice
+
+function qgFileChosen(evt){
+  const file = evt.target.files[0]; if(!file) return;
+  const fr = new FileReader();
+  fr.onload = e => {
+    const lines = e.target.result.split(/\r?\n/).filter(l=>l.trim());
+    // detect: position file has '# Origin_X:' header
+    let fileOriginX = null, fileOriginY = null;
+    let isPositionFile = false;
+    lines.forEach(line=>{
+      if(line.startsWith('# Origin_X:')){ fileOriginX = parseFloat(line.split(':')[1]); isPositionFile = true; }
+      if(line.startsWith('# Origin_Y:')){ fileOriginY = parseFloat(line.split(':')[1]); isPositionFile = true; }
+    });
+    const parsed = [];
+    lines.forEach(line=>{
+      if(line.startsWith('#')) return;
+      const p = line.trim().split(/\s+/);
+      if(p.length<4) return;
+      const col=parseInt(p[0]), row=parseInt(p[1]);
+      const x=parseFloat(p[2]), y=parseFloat(p[3]);
+      if(isNaN(col)||isNaN(row)||isNaN(x)||isNaN(y)) return;
+      parsed.push({col,row,x,y});
+    });
+    if(parsed.length === 0){
+      lg('error','QG','No valid points in file'); return;
+    }
+
+    if(isPositionFile){
+      // It's a position file — ask user about origin
+      qgPendingPosFile = parsed;
+      document.getElementById('qg-pos-x').textContent = fileOriginX!==null ? fileOriginX.toFixed(4) : '?';
+      document.getElementById('qg-pos-y').textContent = fileOriginY!==null ? fileOriginY.toFixed(4) : '?';
+      qgPendingPosFile._fileOrigX = fileOriginX;
+      qgPendingPosFile._fileOrigY = fileOriginY;
+      document.getElementById('qg-posorigin-overlay').classList.add('show');
+    } else {
+      // It's a pixel file — Option B auto: scale by 3.45, invert Y by default
+      if(!gsOriginSet){
+        lg('error','QG','Set Origin first before loading pixel file');
+        return;
+      }
+      if(parsed.length !== 144){
+        lg('error','QG','Pixel file expected 144 points, got '+parsed.length); return;
+      }
+      qgLoadPixelFile(parsed);
+    }
+  };
+  fr.readAsText(file);
+  evt.target.value = '';
+}
+
+function qgLoadPixelFile(parsed){
+  const scale = 3.45;
+  const invX = document.getElementById('gs-invert-x')?.checked ? -1 : 1;
+  const invY = document.getElementById('gs-invert-y')?.checked ? -1 : 1;
+  // default for QuickGrid: image Y goes down, so invert Y
+  // we use the toolbar's invert-y but QuickGrid users should toggle it via advanced
+  const p00 = parsed.find(p=>p.col===0&&p.row===0);
+  const refX = p00 ? p00.x : 0;
+  const refY = p00 ? p00.y : 0;
+  // by convention image Y+ down, so always invert Y for pixel files in QuickGrid
+  // user can override via advanced Invert Y toggle (default off, so apply implicit invert)
+  const yMult = -1;  // image-to-stage default
+
+  gsPoints = [];
+  const sorted = [...parsed].sort((a,b)=>a.row-b.row||a.col-b.col);
+  sorted.forEach(p=>{
+    const offUmX = (p.x - refX) * scale * invX;
+    const offUmY = (p.y - refY) * scale * yMult * invY;
+    gsPoints.push({col:p.col, row:p.row, x:offUmX, y:offUmY, state:GS_UNVISITED, note:''});
+  });
+  // store in µm because gsUnitToMM divides by 1000 when unit='um'
+  // make sure unit is 'um'
+  const u = document.getElementById('gs-unit'); if(u) u.value='um';
+  gsRebuildOrder(); gsRenderCanvas(); qgRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  lg('sys','QG','Pixel file loaded: 144 points generated (scale=3.45 µm/px)');
+
+  // auto-export with timestamp
+  qgAutoExportTxt();
+  qgUpdateSteps();
+}
+
+function qgPosUseFileOrigin(){
+  const parsed = qgPendingPosFile;
+  if(!parsed){ document.getElementById('qg-posorigin-overlay').classList.remove('show'); return; }
+  if(parsed._fileOrigX!==null){ gsOriginX = parsed._fileOrigX; }
+  if(parsed._fileOrigY!==null){ gsOriginY = parsed._fileOrigY; }
+  gsOriginSet = true;
+  qgApplyPositionFile(parsed);
+  document.getElementById('qg-posorigin-overlay').classList.remove('show');
+  jogUpdateOriginDisplay(); qgUpdateOriginDisplay(); gsAutoSave();
+  lg('sys','QG','Loaded position file using file origin');
+}
+
+function qgPosUseCurrentOrigin(){
+  const parsed = qgPendingPosFile;
+  if(!parsed){ document.getElementById('qg-posorigin-overlay').classList.remove('show'); return; }
+  if(!gsOriginSet){
+    lg('error','QG','Current origin not set — cannot use it'); return;
+  }
+  qgApplyPositionFile(parsed);
+  document.getElementById('qg-posorigin-overlay').classList.remove('show');
+  lg('sys','QG','Loaded position file using current locked origin');
+}
+
+function qgApplyPositionFile(parsed){
+  // position files have coords in µm relative to origin — load directly
+  gsPoints = [];
+  // ensure 144 entries (use defaults for missing)
+  for(let row=0; row<ROWS; row++){
+    for(let col=0; col<COLS; col++){
+      const found = parsed.find(p=>p.col===col&&p.row===row);
+      if(found){
+        gsPoints.push({col, row, x:found.x, y:found.y, state:GS_UNVISITED, note:''});
+      } else {
+        gsPoints.push({col, row, x:0, y:0, state:GS_UNVISITED, note:''});
+      }
+    }
+  }
+  const u = document.getElementById('gs-unit'); if(u) u.value='um';
+  gsRebuildOrder(); gsRenderCanvas(); qgRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  qgUpdateSteps();
+}
+
+function qgAutoExportTxt(){
+  let txt = '';
+  txt += '# DOTIFS QuickGrid Generated Positions\n';
+  const now = new Date();
+  const ts = now.toISOString().slice(0,19).replace(/:/g,'').replace('T','_');
+  txt += '# Date: ' + now.toISOString() + '\n';
+  txt += '# Origin_X: ' + gsOriginX.toFixed(6) + '\n';
+  txt += '# Origin_Y: ' + gsOriginY.toFixed(6) + '\n';
+  txt += '# Scale_um_per_px: 3.45\n';
+  txt += '# Format: col row X_um Y_um\n';
+  gsPoints.forEach(p=>{
+    txt += p.col + ' ' + p.row + ' ' + p.x.toFixed(6) + ' ' + p.y.toFixed(6) + '\n';
+  });
+  const blob = new Blob([txt], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'MLA_quickgrid_' + ts + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+  lg('sys','QG','Auto-exported: MLA_quickgrid_' + ts + '.txt');
+}
+
+// ── apply speed ─────────────────────────────────────────────
+async function qgApplySpeed(){
+  const v = parseFloat(document.getElementById('qg-vel').value)||0.1;
+  document.getElementById('gs-vel').value = v;
+  gsAxisSave();
+  await gsApplyVelocity();
+}
+
+// ── acknowledge errors ──────────────────────────────────────
+async function qgAckAllErrors(){
+  if(!connected){ lg('error','ERR','Not connected'); return; }
+  const xid = parseInt(document.getElementById('gs-x-id').value)||1;
+  const yid = parseInt(document.getElementById('gs-y-id').value)||2;
+  const ax  = document.getElementById('gs-axis-num').value.trim()||'1';
+  lg('info','QG','Acknowledging all errors on X (ctrl '+xid+') and Y (ctrl '+yid+')…');
+  for(const id of [xid, yid]){
+    const r = await scanQuery(id+' ERR?', 1000);
+    const code = r ? (r.includes('=')?r.split('=').pop().trim():r.trim()) : '?';
+    lg('info','QG','Controller '+id+' ERR? = '+code);
+    if(code !== '0'){
+      // try INI to clear
+      await send(id+' INI '+ax);
+      await new Promise(r=>setTimeout(r,300));
+      lg('sys','QG','Sent INI to ctrl '+id+' (was error '+code+')');
+    }
+  }
+  lg('sys','QG','Error acknowledge complete');
+}
+
+// ── live position polling ───────────────────────────────────
+async function qgReadPos(){
+  if(!connected || qgPolling) return;
+  qgPolling = true;
+  try{
+    const xid = parseInt(document.getElementById('gs-x-id').value)||1;
+    const yid = parseInt(document.getElementById('gs-y-id').value)||2;
+    const ax  = document.getElementById('gs-axis-num').value.trim()||'1';
+    const rx = await scanQuery(xid+' POS? '+ax, 1200);
+    if(rx){
+      const v = rx.includes('=')?rx.split('=').pop().trim():rx.trim();
+      const el = document.getElementById('qg-livex');
+      if(el && !isNaN(parseFloat(v))) el.textContent = parseFloat(v).toFixed(4);
+    }
+    await new Promise(r=>setTimeout(r,100));
+    const ry = await scanQuery(yid+' POS? '+ax, 1200);
+    if(ry){
+      const v = ry.includes('=')?ry.split('=').pop().trim():ry.trim();
+      const el = document.getElementById('qg-livey');
+      if(el && !isNaN(parseFloat(v))) el.textContent = parseFloat(v).toFixed(4);
+    }
+  } finally { qgPolling = false; }
+}
+
+// ── nudge (delegates to existing nudge logic) ───────────────
+async function qgNudge(axis, dir){
+  // sync values to nudge inputs so the main nudge function works
+  document.getElementById('nudge-step-um').value = document.getElementById('qg-nudge-um').value;
+  document.getElementById('nudge-steps').value = document.getElementById('qg-nudge-n').value;
+  await nudge(axis, dir);
+  // mirror last-cmd display
+  const cmd = document.getElementById('nudge-last-cmd')?.textContent;
+  if(cmd){
+    const el = document.getElementById('qg-last-cmd');
+    if(el) el.textContent = cmd;
+  }
+  qgUpdateNudgeLabel();
+  setTimeout(qgReadPos, 250);
+}
+
+function qgSetNudge(val){
+  document.getElementById('qg-nudge-um').value = val;
+  document.getElementById('qg-nudge-n').value = 1;
+  document.getElementById('nudge-step-um').value = val;
+  document.getElementById('nudge-steps').value = 1;
+  qgUpdateNudgeLabel();
+}
+
+function qgUpdateNudgeLabel(){
+  const stepUm = parseFloat(document.getElementById('qg-nudge-um').value)||1;
+  const steps = parseInt(document.getElementById('qg-nudge-n').value)||1;
+  const total = stepUm*steps;
+  const el = document.getElementById('qg-nudge-val');
+  if(!el) return;
+  if(total>=1000) el.textContent=(total/1000).toFixed(2)+'mm';
+  else if(total>=1) el.textContent=total.toFixed(1)+'µm';
+  else el.textContent=(total*1000).toFixed(0)+'nm';
+}
+
+// ── canvas rendering (mirrors grid scan canvas) ─────────────
+function qgRenderCanvas(){
+  const canvas = document.getElementById('qg-canvas');
+  if(!canvas) return;
+  const {w,h} = gsCanvasSize();
+  const dpr = window.devicePixelRatio||1;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+
+  gsPoints.forEach((p,i)=>{
+    const {cx,cy} = gsCellXY(p.col, p.row);
+    const isCurrent = (gsOrder.indexOf(i)===gsCurIdx);
+    let fill, stroke, strokeW=1.5;
+    if(isCurrent){ fill='#d29922'; stroke='#f0b030'; strokeW=2.5; }
+    else if(p.state===GS_FIBRE){ fill='#1a3a24'; stroke='#3fb950'; strokeW=2; }
+    else if(p.state===GS_NOFIBRE){ fill='#22262f'; stroke='#3a4458'; strokeW=1; }
+    else if(p.state===GS_SKIPPED){ fill='#2a1519'; stroke='#f85149'; strokeW=1.5; }
+    else { fill='#2a2d35'; stroke='#3a4458'; strokeW=1; }
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+    ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle=stroke; ctx.lineWidth=strokeW; ctx.stroke();
+    if(p.state===GS_FIBRE){
+      ctx.strokeStyle='#3fb950'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(cx-7,cy); ctx.lineTo(cx-2,cy+6); ctx.lineTo(cx+8,cy-7); ctx.stroke();
+    }
+    if(p.state===GS_SKIPPED){
+      ctx.strokeStyle='#f85149'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(cx-6,cy-6); ctx.lineTo(cx+6,cy+6);
+      ctx.moveTo(cx+6,cy-6); ctx.lineTo(cx-6,cy+6); ctx.stroke();
+    }
+    // seq number
+    const seq = gsSeqNum(p.col, p.row);
+    ctx.fillStyle = isCurrent ? '#0e1117' : (p.state===GS_FIBRE ? '#3fb950' : '#8b949e');
+    ctx.font = `600 ${R>16?10:9}px Courier New, monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(seq), cx, cy+(p.state===GS_FIBRE?-2:0));
+  });
+}
+
+// canvas click
+document.addEventListener('DOMContentLoaded', ()=>{
+  const c = document.getElementById('qg-canvas');
+  if(c){
+    c.addEventListener('click', e=>{
+      const rect = c.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const ptIdx = gsHitTest(mx, my);
+      if(ptIdx >= 0){
+        qgOnCellClick(ptIdx);
+      }
+    });
+  }
+});
+
+function qgOnCellClick(ptIdx){
+  const p = gsPoints[ptIdx];
+  qgPendingPt = ptIdx;
+  // show simple confirm using browser confirm (or reuse gs overlay)
+  gsOnCellClick(ptIdx);  // reuse existing confirm dialog
+}
+
+function qgToggleAdvanced(){
+  const adv = document.getElementById('qg-advanced');
+  const hdr = document.getElementById('qg-adv-header');
+  if(!adv) return;
+  const isOpen = adv.style.display !== 'none';
+  if(isOpen){
+    adv.style.display = 'none';
+    hdr.textContent = '▾ Advanced Settings';
+  } else {
+    adv.style.display = 'flex';
+    hdr.textContent = '▴ Advanced Settings';
+  }
+}
+
+// hook into existing gsRenderCanvas to also redraw QuickGrid when visible
+const _qgOrigGsRender = gsRenderCanvas;
+gsRenderCanvas = function(){
+  _qgOrigGsRender.apply(this, arguments);
+  const qg = document.getElementById('quick-full');
+  if(qg && qg.style.display !== 'none') qgRenderCanvas();
+};
+const _qgOrigGsUpdateStatus = gsUpdateStatus;
+gsUpdateStatus = function(){
+  _qgOrigGsUpdateStatus.apply(this, arguments);
+  qgUpdateStatus();
+};
+const _qgOrigJogUpdateOriginDisplay = jogUpdateOriginDisplay;
+jogUpdateOriginDisplay = function(){
+  _qgOrigJogUpdateOriginDisplay.apply(this, arguments);
+  qgUpdateOriginDisplay();
+  qgUpdateSteps();
+};
 
 // ── dashboard self-contained scan ────────────────────────────
 async function dbScanControllers(){
