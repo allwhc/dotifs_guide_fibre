@@ -1571,7 +1571,7 @@
 
     <!-- main body: grid canvas + right panel (reuse grid scan rendering) -->
     <div style="flex:1;display:flex;overflow:hidden;">
-      <div style="flex:1;overflow:auto;padding:20px;display:flex;align-items:flex-start;justify-content:flex-start;background:var(--bg);">
+      <div style="flex:1;overflow:hidden;padding:12px;display:flex;align-items:center;justify-content:center;background:var(--bg);">
         <canvas id="qg-canvas" style="cursor:pointer;display:block"></canvas>
       </div>
       <div style="width:260px;flex-shrink:0;border-left:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;overflow:hidden">
@@ -4627,17 +4627,28 @@ function qgUpdateNudgeLabel(){
   else el.textContent=(total*1000).toFixed(0)+'nm';
 }
 
-// ── canvas rendering (mirrors grid scan canvas) ─────────────
+// ── canvas rendering (auto-fits container, no scroll) ───────
+let qgScale = 1;  // current scale factor for hit testing
+
 function qgRenderCanvas(){
   const canvas = document.getElementById('qg-canvas');
   if(!canvas) return;
-  const {w,h} = gsCanvasSize();
+  const wrap = canvas.parentElement;
+  const baseW = STAGGER + COLS*CELL + 20;
+  const baseH = ROWS*CELL + 20;
+  // available area inside wrap (minus padding)
+  const availW = Math.max(200, wrap.clientWidth - 24);
+  const availH = Math.max(200, wrap.clientHeight - 24);
+  qgScale = Math.min(availW/baseW, availH/baseH, 1.5);  // allow up to 1.5x zoom if space
+  const w = baseW * qgScale;
+  const h = baseH * qgScale;
+
   const dpr = window.devicePixelRatio||1;
   canvas.width = w*dpr; canvas.height = h*dpr;
   canvas.style.width = w+'px'; canvas.style.height = h+'px';
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr,dpr);
-  ctx.clearRect(0,0,w,h);
+  ctx.scale(dpr*qgScale, dpr*qgScale);
+  ctx.clearRect(0,0,baseW,baseH);
 
   gsPoints.forEach((p,i)=>{
     const {cx,cy} = gsCellXY(p.col, p.row);
@@ -4660,7 +4671,6 @@ function qgRenderCanvas(){
       ctx.beginPath(); ctx.moveTo(cx-6,cy-6); ctx.lineTo(cx+6,cy+6);
       ctx.moveTo(cx+6,cy-6); ctx.lineTo(cx-6,cy+6); ctx.stroke();
     }
-    // seq number
     const seq = gsSeqNum(p.col, p.row);
     ctx.fillStyle = isCurrent ? '#0e1117' : (p.state===GS_FIBRE ? '#3fb950' : '#8b949e');
     ctx.font = `600 ${R>16?10:9}px Courier New, monospace`;
@@ -4669,14 +4679,21 @@ function qgRenderCanvas(){
   });
 }
 
+// re-render on window resize
+window.addEventListener('resize', ()=>{
+  const qg = document.getElementById('quick-full');
+  if(qg && qg.style.display !== 'none') qgRenderCanvas();
+});
+
 // canvas click
 document.addEventListener('DOMContentLoaded', ()=>{
   const c = document.getElementById('qg-canvas');
   if(c){
     c.addEventListener('click', e=>{
       const rect = c.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
+      // convert from displayed coords to base canvas coords (divide by scale)
+      const mx = (e.clientX - rect.left) / (qgScale||1);
+      const my = (e.clientY - rect.top) / (qgScale||1);
       const ptIdx = gsHitTest(mx, my);
       if(ptIdx >= 0){
         qgOnCellClick(ptIdx);
