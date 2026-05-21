@@ -1587,12 +1587,15 @@
 
         <!-- nudge controls -->
         <div style="border-top:1px solid var(--border);padding:10px 12px;background:var(--bg3);flex-shrink:0;">
-          <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Nudge (Live Position)</div>
-          <div style="font-size:10px;color:var(--text2);margin-bottom:6px">
-            X: <span style="color:var(--blue);font-family:var(--mono)" id="qg-livex">—</span>
-            Y: <span style="color:var(--blue);font-family:var(--mono)" id="qg-livey">—</span>
-            <button class="gf-btn gf-ghost" onclick="qgReadPos()" style="padding:1px 6px;font-size:9px;margin-left:4px">⟳</button>
+          <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+            <span>Nudge (Live Position)</span>
+            <button class="gf-btn gf-ghost" onclick="qgReadPos()" style="padding:1px 6px;font-size:9px">⟳ Read</button>
           </div>
+          <div style="padding:6px;background:var(--bg2);border-radius:4px;margin-bottom:6px;font-family:var(--mono);font-size:11px">
+            <div>X: <span style="color:var(--blue);font-weight:600" id="qg-livex">—</span> mm</div>
+            <div>Y: <span style="color:var(--blue);font-weight:600" id="qg-livey">—</span> mm</div>
+          </div>
+          <button class="gf-btn gf-amber" onclick="qgSetOrigin()" style="width:100%;padding:5px 0;font-size:11px;font-weight:600;margin-bottom:8px">🔒 Set this as Origin</button>
           <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">
             <span style="font-size:10px;color:var(--text2);width:30px">Step</span>
             <input type="number" id="qg-nudge-um" value="1" step="0.1" min="0.01"
@@ -1638,16 +1641,19 @@
         <button class="jog-close" onclick="document.getElementById('qg-origin-overlay').classList.remove('show')">✕</button>
       </div>
       <div style="padding:16px">
-        <div style="font-size:12px;color:var(--text);margin-bottom:10px">Lock origin at current stage position?</div>
-        <div style="padding:10px;background:var(--bg3);border-radius:4px;font-family:var(--mono);font-size:12px;margin-bottom:8px">
-          X = <span style="color:var(--amber)" id="qg-org-x">—</span> mm<br>
-          Y = <span style="color:var(--amber)" id="qg-org-y">—</span> mm
+        <div style="font-size:13px;color:var(--text);margin-bottom:10px;font-weight:600">Do you really want to set this as the grid origin (0,0)?</div>
+        <div style="padding:10px;background:var(--bg3);border-radius:4px;font-family:var(--mono);font-size:13px;margin-bottom:8px">
+          X = <span style="color:var(--amber);font-weight:600" id="qg-org-x">—</span> mm<br>
+          Y = <span style="color:var(--amber);font-weight:600" id="qg-org-y">—</span> mm
+        </div>
+        <div id="qg-org-warn" style="display:none;padding:8px;background:rgba(248,81,73,.1);border:1px solid var(--red);border-radius:4px;font-size:10px;color:var(--red);margin-bottom:10px">
+          ⚠ An origin is already locked. Re-locking will replace it and all loaded grid points will move relative to this new origin.
         </div>
         <div style="font-size:10px;color:var(--text2);margin-bottom:14px">This will become grid (0,0). All grid points are calculated relative to this position.</div>
         <div style="display:flex;gap:6px">
           <button class="gf-btn gf-ghost" style="flex:1" onclick="document.getElementById('qg-origin-overlay').classList.remove('show')">Cancel</button>
-          <button class="gf-btn gf-amber" id="qg-org-mvbtn" style="flex:1;display:none" onclick="qgGoToOrigin()">⌂ Move to Origin</button>
-          <button class="gf-btn gf-green" style="flex:1" onclick="qgConfirmLock()">🔒 Lock</button>
+          <button class="gf-btn gf-amber" id="qg-org-mvbtn" style="flex:1;display:none" onclick="qgGoToOrigin()">⌂ Go to Current Origin</button>
+          <button class="gf-btn gf-green" style="flex:1" onclick="qgConfirmLock()">🔒 Yes, Lock</button>
         </div>
       </div>
     </div>
@@ -4389,8 +4395,9 @@ function qgSetOrigin(){
   }
   document.getElementById('qg-org-x').textContent = xVal.toFixed(4);
   document.getElementById('qg-org-y').textContent = yVal.toFixed(4);
-  // show Move-to-Origin button only if origin already set
+  // show Move-to-Origin button and warning only if origin already set
   document.getElementById('qg-org-mvbtn').style.display = gsOriginSet ? '' : 'none';
+  document.getElementById('qg-org-warn').style.display = gsOriginSet ? 'block' : 'none';
   document.getElementById('qg-origin-overlay').classList.add('show');
 }
 
