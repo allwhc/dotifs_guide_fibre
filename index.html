@@ -1524,6 +1524,11 @@
 
       <span class="gf-lbl">Origin:</span><span class="gf-sval" style="color:var(--purple)" id="qg-origin-disp">not set</span>
 
+      <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
+
+      <span class="gf-lbl">File:</span>
+      <span class="gf-sval" style="color:var(--blue);font-family:var(--mono);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="qg-file-disp" title="No file loaded">no file</span>
+
       <div style="flex:1"></div>
 
       <span class="gf-lbl">Done:</span><span class="gf-sval" style="color:var(--green)" id="qg-done">0</span><span class="gf-lbl">/144</span>
@@ -4252,6 +4257,27 @@ function switchTab(name){
 let qgPollTimer = null;
 let qgPolling   = false;
 let qgPendingPt = -1;
+let qgCurrentFile = '';     // name of loaded file (original input)
+let qgGeneratedFile = '';   // name of auto-generated file (for pixel loads)
+
+function qgUpdateFileDisplay(){
+  const el = document.getElementById('qg-file-disp');
+  if(!el) return;
+  if(!qgCurrentFile && !qgGeneratedFile){
+    el.textContent = 'no file';
+    el.title = 'No file loaded';
+    el.style.color = 'var(--text2)';
+    return;
+  }
+  if(qgGeneratedFile){
+    el.textContent = qgCurrentFile + ' → ' + qgGeneratedFile;
+    el.title = 'Source: ' + qgCurrentFile + '\nGenerated: ' + qgGeneratedFile;
+  } else {
+    el.textContent = qgCurrentFile;
+    el.title = qgCurrentFile;
+  }
+  el.style.color = 'var(--blue)';
+}
 
 function qgOnTabOpen(){
   // sync values from the existing grid-scan settings so QuickGrid mirrors them
@@ -4267,6 +4293,7 @@ function qgOnTabOpen(){
   qgRenderCanvas();
   qgUpdateStatus();
   qgUpdateOriginDisplay();
+  qgUpdateFileDisplay();
 
   // start polling live position
   if(qgPollTimer){ clearInterval(qgPollTimer); qgPollTimer=null; }
@@ -4395,6 +4422,7 @@ let qgPendingPosFile = null;  // parsed points awaiting origin choice
 
 function qgFileChosen(evt){
   const file = evt.target.files[0]; if(!file) return;
+  qgCurrentFile = file.name;
   const fr = new FileReader();
   fr.onload = e => {
     const lines = e.target.result.split(/\r?\n/).filter(l=>l.trim());
@@ -4467,10 +4495,11 @@ function qgLoadPixelFile(parsed){
   // make sure unit is 'um'
   const u = document.getElementById('gs-unit'); if(u) u.value='um';
   gsRebuildOrder(); gsRenderCanvas(); qgRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
-  lg('sys','QG','Pixel file loaded: 144 points generated (scale=3.45 µm/px)');
+  lg('sys','QG','Pixel file loaded: 144 points generated (scale=3.45 µm/px) from '+qgCurrentFile);
 
   // auto-export with timestamp
   qgAutoExportTxt();
+  qgUpdateFileDisplay();
   qgUpdateSteps();
 }
 
@@ -4512,7 +4541,9 @@ function qgApplyPositionFile(parsed){
     }
   }
   const u = document.getElementById('gs-unit'); if(u) u.value='um';
+  qgGeneratedFile = '';  // position file used directly, no generated file
   gsRebuildOrder(); gsRenderCanvas(); qgRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  qgUpdateFileDisplay();
   qgUpdateSteps();
 }
 
@@ -4522,6 +4553,7 @@ function qgAutoExportTxt(){
   const now = new Date();
   const ts = now.toISOString().slice(0,19).replace(/:/g,'').replace('T','_');
   txt += '# Date: ' + now.toISOString() + '\n';
+  if(qgCurrentFile) txt += '# Source: ' + qgCurrentFile + '\n';
   txt += '# Origin_X: ' + gsOriginX.toFixed(6) + '\n';
   txt += '# Origin_Y: ' + gsOriginY.toFixed(6) + '\n';
   txt += '# Scale_um_per_px: 3.45\n';
@@ -4529,14 +4561,16 @@ function qgAutoExportTxt(){
   gsPoints.forEach(p=>{
     txt += p.col + ' ' + p.row + ' ' + p.x.toFixed(6) + ' ' + p.y.toFixed(6) + '\n';
   });
+  const fname = 'MLA_quickgrid_' + ts + '.txt';
   const blob = new Blob([txt], {type:'text/plain'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'MLA_quickgrid_' + ts + '.txt';
+  a.download = fname;
   a.click();
   URL.revokeObjectURL(url);
-  lg('sys','QG','Auto-exported: MLA_quickgrid_' + ts + '.txt');
+  qgGeneratedFile = fname;
+  lg('sys','QG','Auto-exported: ' + fname);
 }
 
 // ── apply speed ─────────────────────────────────────────────
