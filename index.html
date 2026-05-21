@@ -4673,7 +4673,7 @@ function qgRenderCanvas(){
   // available area inside wrap (minus padding)
   const availW = Math.max(200, wrap.clientWidth - 24);
   const availH = Math.max(200, wrap.clientHeight - 24);
-  qgScale = Math.min(availW/baseW, availH/baseH, 1.5);  // allow up to 1.5x zoom if space
+  qgScale = Math.min(availW/baseW, availH/baseH, 2.5);  // allow up to 2.5x zoom if space
   const w = baseW * qgScale;
   const h = baseH * qgScale;
 
