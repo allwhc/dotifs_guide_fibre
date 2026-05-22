@@ -4384,14 +4384,21 @@ async function qgConnect(){
 }
 
 // ── step 2: set origin ──────────────────────────────────────
-function qgSetOrigin(){
+async function qgSetOrigin(){
   if(!connected){ lg('error','ERR','Connect first'); return; }
   const xEl = document.getElementById('qg-livex');
   const yEl = document.getElementById('qg-livey');
-  const xVal = xEl ? parseFloat(xEl.textContent) : NaN;
-  const yVal = yEl ? parseFloat(yEl.textContent) : NaN;
+  let xVal = xEl ? parseFloat(xEl.textContent) : NaN;
+  let yVal = yEl ? parseFloat(yEl.textContent) : NaN;
+  // if position not yet read, do a fresh read now
+  if(isNaN(xVal) || isNaN(yVal)){
+    lg('info','QG','Reading current position…');
+    await qgReadPos();
+    xVal = xEl ? parseFloat(xEl.textContent) : NaN;
+    yVal = yEl ? parseFloat(yEl.textContent) : NaN;
+  }
   if(isNaN(xVal)||isNaN(yVal)){
-    lg('error','QG','Live position not available — wait for read'); return;
+    lg('error','QG','Could not read live position — check connection and controller IDs'); return;
   }
   document.getElementById('qg-org-x').textContent = xVal.toFixed(4);
   document.getElementById('qg-org-y').textContent = yVal.toFixed(4);
@@ -4623,27 +4630,41 @@ async function qgAckAllErrors(){
 
 // ── live position polling ───────────────────────────────────
 async function qgReadPos(){
-  if(!connected || qgPolling) return;
+  if(!connected){
+    lg('error','QG','Not connected — cannot read position');
+    return;
+  }
+  if(qgPolling){
+    // safety: if a previous poll is still flagged but actually finished, reset after 5s
+    if(Date.now() - (qgPollingStart||0) > 5000){ qgPolling = false; }
+    else return;
+  }
   qgPolling = true;
+  qgPollingStart = Date.now();
   try{
-    const xid = parseInt(document.getElementById('gs-x-id').value)||1;
-    const yid = parseInt(document.getElementById('gs-y-id').value)||2;
-    const ax  = document.getElementById('gs-axis-num').value.trim()||'1';
-    const rx = await scanQuery(xid+' POS? '+ax, 1200);
+    const xid = parseInt((document.getElementById('gs-x-id')||{}).value)||parseInt((document.getElementById('qg-x-id')||{}).value)||1;
+    const yid = parseInt((document.getElementById('gs-y-id')||{}).value)||parseInt((document.getElementById('qg-y-id')||{}).value)||2;
+    const ax  = ((document.getElementById('gs-axis-num')||{}).value||(document.getElementById('qg-axis')||{}).value||'1').trim();
+    const rx = await scanQuery(xid+' POS? '+ax, 1500);
     if(rx){
       const v = rx.includes('=')?rx.split('=').pop().trim():rx.trim();
       const el = document.getElementById('qg-livex');
-      if(el && !isNaN(parseFloat(v))) el.textContent = parseFloat(v).toFixed(4);
+      const f = parseFloat(v);
+      if(el && !isNaN(f)) el.textContent = f.toFixed(4);
     }
-    await new Promise(r=>setTimeout(r,100));
-    const ry = await scanQuery(yid+' POS? '+ax, 1200);
+    await new Promise(r=>setTimeout(r,150));
+    const ry = await scanQuery(yid+' POS? '+ax, 1500);
     if(ry){
       const v = ry.includes('=')?ry.split('=').pop().trim():ry.trim();
       const el = document.getElementById('qg-livey');
-      if(el && !isNaN(parseFloat(v))) el.textContent = parseFloat(v).toFixed(4);
+      const f = parseFloat(v);
+      if(el && !isNaN(f)) el.textContent = f.toFixed(4);
     }
+  } catch(e){
+    lg('error','QG','Read pos error: '+e.message);
   } finally { qgPolling = false; }
 }
+let qgPollingStart = 0;
 
 // ── nudge (delegates to existing nudge logic) ───────────────
 async function qgNudge(axis, dir){
