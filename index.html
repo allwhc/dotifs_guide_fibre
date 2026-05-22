@@ -1520,6 +1520,9 @@
       <button class="gf-btn" onclick="qgAckAllErrors()" style="background:var(--amber);color:#0e1117;border-color:var(--amber);padding:4px 12px"
               title="Read ERR? on all controllers, then send INI to clear any error state">⚠ Acknowledge All Errors</button>
 
+      <button class="gf-btn gf-green" onclick="qgExportRecorded()" style="padding:4px 12px"
+              title="Download a new position file using only the recorded positions">📤 Export Recorded</button>
+
       <button class="gf-btn" onclick="qgResetGrid()" style="background:transparent;color:var(--red);border-color:var(--red);padding:4px 12px"
               title="Unload grid and clear all state — origin remains locked">🗑 Reset Grid</button>
 
@@ -4851,6 +4854,15 @@ function qgShowPointDetails(ptIdx){
   const absX = gsOriginSet ? (gsOriginX + xMM*invX) : null;
   const absY = gsOriginSet ? (gsOriginY + yMM*invY) : null;
   const seq = gsSeqNum(p.col, p.row);
+
+  // state badge color
+  const stateBadge = (function(){
+    if(p.state===GS_FIBRE) return '<span style="color:var(--green);font-weight:600">✓ Fibre</span>';
+    if(p.state===GS_NOFIBRE) return '<span style="color:var(--text2);font-weight:600">✗ No fibre</span>';
+    if(p.state===GS_SKIPPED) return '<span style="color:var(--red);font-weight:600">✕ Skipped</span>';
+    return '<span style="color:var(--text2)">unvisited</span>';
+  })();
+
   el.innerHTML =
     '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Point #</span><span style="font-weight:600">'+seq+'</span></div>'+
     '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Col, Row</span><span style="font-weight:600">'+p.col+', '+p.row+'</span></div>'+
@@ -4864,11 +4876,122 @@ function qgShowPointDetails(ptIdx){
         '</div>'
       : '<div style="margin-top:8px;padding:6px;background:var(--bg3);border-radius:4px;color:var(--red);font-size:10px">Origin not set — lock origin to compute target</div>'
     )+
-    '<div style="display:flex;justify-content:space-between;margin-top:6px"><span style="color:var(--text2)">State</span><span style="font-weight:600">'+p.state+'</span></div>'+
+    '<div style="display:flex;justify-content:space-between;margin-top:6px"><span style="color:var(--text2)">State</span>'+stateBadge+'</div>'+
+
+    // Fibre status buttons
+    '<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">'+
+    '<div style="font-size:10px;color:var(--text2);margin-bottom:4px">Mark fibre status:</div>'+
+    '<div style="display:flex;gap:4px;margin-bottom:4px">'+
+      "<button class=\"gf-btn gf-green\" style=\"flex:1;padding:5px 0;font-size:11px\" onclick=\"qgSetState("+ptIdx+",'"+GS_FIBRE+"')\">✓ Yes</button>"+
+      "<button class=\"gf-btn gf-ghost\" style=\"flex:1;padding:5px 0;font-size:11px\" onclick=\"qgSetState("+ptIdx+",'"+GS_NOFIBRE+"')\">✗ No</button>"+
+    '</div>'+
+    '<div style="display:flex;gap:4px;margin-bottom:8px">'+
+      (p.state===GS_SKIPPED
+        ? "<button class=\"gf-btn gf-amber\" style=\"flex:1;padding:5px 0;font-size:11px\" onclick=\"qgSetState("+ptIdx+",'"+GS_UNVISITED+"')\">↩ Restore</button>"
+        : "<button class=\"gf-btn\" style=\"flex:1;padding:5px 0;font-size:11px;background:var(--red);color:#fff;border-color:var(--red)\" onclick=\"qgSetState("+ptIdx+",'"+GS_SKIPPED+"')\">✕ Skip / Delete</button>"
+      )+
+    '</div>'+
+
+    // Record actual position
+    '<div style="font-size:10px;color:var(--text2);margin-bottom:4px">Record actual stage position:</div>'+
+    '<button class="gf-btn gf-blue" style="width:100%;padding:5px 0;font-size:11px" onclick="qgRecordPoint('+ptIdx+')">📍 Record Position (POS?)</button>'+
     (p.recX!==undefined
-      ? '<div style="margin-top:6px;padding:4px;background:rgba(63,185,80,.1);border-radius:4px;font-size:10px">Recorded: X='+p.recX.toFixed(3)+' Y='+p.recY.toFixed(3)+' µm</div>'
-      : ''
+      ? '<div style="margin-top:6px;padding:6px;background:rgba(63,185,80,.1);border-radius:4px;font-size:10px;font-family:var(--mono)">'+
+        '<div style="color:var(--green);font-weight:600;margin-bottom:2px">✓ Recorded:</div>'+
+        '<div>X = '+p.recX.toFixed(3)+' µm</div>'+
+        '<div>Y = '+p.recY.toFixed(3)+' µm</div>'+
+        '</div>'
+      : '<div style="margin-top:4px;font-size:9px;color:var(--text2)">Not yet recorded</div>'
     );
+}
+
+// QuickGrid: export only recorded positions as a new .txt file
+function qgExportRecorded(){
+  const recorded = gsPoints.filter(p=>p.recX!==undefined);
+  if(recorded.length === 0){
+    lg('error','QG','No recorded positions yet. Use "Record Position" on a point first.');
+    return;
+  }
+  let txt = '';
+  txt += '# DOTIFS QuickGrid Recorded Positions\n';
+  const now = new Date();
+  const ts = now.toISOString().slice(0,19).replace(/:/g,'').replace('T','_');
+  txt += '# Date: ' + now.toISOString() + '\n';
+  if(qgCurrentFile) txt += '# Source: ' + qgCurrentFile + '\n';
+  txt += '# Origin_X: ' + gsOriginX.toFixed(6) + '\n';
+  txt += '# Origin_Y: ' + gsOriginY.toFixed(6) + '\n';
+  txt += '# Recorded: ' + recorded.length + '/144\n';
+  txt += '# Format: col row X_um Y_um\n';
+  recorded.forEach(p=>{
+    txt += p.col + ' ' + p.row + ' ' + p.recX.toFixed(6) + ' ' + p.recY.toFixed(6) + '\n';
+  });
+  const fname = 'MLA_recorded_' + ts + '.txt';
+  const blob = new Blob([txt], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+  a.click();
+  URL.revokeObjectURL(url);
+  lg('sys','QG','Exported '+recorded.length+'/144 recorded positions: '+fname);
+}
+
+// QuickGrid: reset (unload) grid with confirmation
+function qgResetGrid(){
+  if(!confirm('Reset grid?\n\nThis will:\n- Unload all 144 points\n- Clear all fibre states and recorded positions\n- Keep origin locked\n\nProceed?')) return;
+  gsPoints = [];
+  for(let row=0; row<ROWS; row++){
+    for(let col=0; col<COLS; col++){
+      gsPoints.push({col, row, x:0, y:0, state:GS_UNVISITED, note:''});
+    }
+  }
+  qgPixelData = null;
+  qgCurrentFile = '';
+  qgGeneratedFile = '';
+  gsCurIdx = -1;
+  gsRebuildOrder(); gsRenderCanvas(); gsUpdateStatus(); qgUpdateStatus();
+  qgUpdateFileDisplay(); qgUpdateSteps(); gsAutoSave();
+  // clear point details panel
+  const el = document.getElementById('qg-det-body');
+  if(el) el.innerHTML = '<div style="color:var(--text2)">Click a point on the grid</div>';
+  lg('sys','QG','Grid reset — all points cleared');
+}
+
+// QuickGrid: mark fibre state
+function qgSetState(ptIdx, state){
+  const p = gsPoints[ptIdx];
+  p.state = state;
+  gsRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  qgShowPointDetails(ptIdx);
+  lg('sys','QG','Point #'+gsSeqNum(p.col,p.row)+' ('+p.col+','+p.row+'): state = '+state);
+}
+
+// QuickGrid: record current POS? as the recorded coord for this point
+async function qgRecordPoint(ptIdx){
+  if(!connected){ lg('error','ERR','Not connected'); return; }
+  if(!gsOriginSet){ lg('error','QG','Origin not set — lock origin first'); return; }
+  const p = gsPoints[ptIdx];
+  const xid = parseInt((document.getElementById('gs-x-id')||{}).value)||parseInt((document.getElementById('qg-x-id')||{}).value)||1;
+  const yid = parseInt((document.getElementById('gs-y-id')||{}).value)||parseInt((document.getElementById('qg-y-id')||{}).value)||2;
+  const ax  = ((document.getElementById('gs-axis-num')||{}).value||(document.getElementById('qg-axis')||{}).value||'1').trim();
+  lg('info','QG','Reading position for record…');
+  const rx = await scanQuery(xid+' POS? '+ax, 2000);
+  await new Promise(r=>setTimeout(r,120));
+  const ry = await scanQuery(yid+' POS? '+ax, 2000);
+  const posX = rx ? parseFloat(rx.includes('=')?rx.split('=').pop():rx) : NaN;
+  const posY = ry ? parseFloat(ry.includes('=')?ry.split('=').pop():ry) : NaN;
+  if(isNaN(posX) || isNaN(posY)){
+    lg('error','QG','Failed to read POS? — cannot record'); return;
+  }
+  // store as µm offset from origin
+  p.recX = (posX - gsOriginX) * 1000;
+  p.recY = (posY - gsOriginY) * 1000;
+  gsRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  qgShowPointDetails(ptIdx);
+  lg('sys','QG','Recorded #'+gsSeqNum(p.col,p.row)+': stage=('+posX.toFixed(6)+','+posY.toFixed(6)+') mm offset=('+p.recX.toFixed(3)+','+p.recY.toFixed(3)+') µm');
+  // also update live display
+  const lx = document.getElementById('qg-livex'); if(lx) lx.textContent = posX.toFixed(4);
+  const ly = document.getElementById('qg-livey'); if(ly) ly.textContent = posY.toFixed(4);
 }
 
 function qgToggleAdvanced(){
