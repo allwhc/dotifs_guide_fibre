@@ -1539,6 +1539,7 @@
 
       <span class="gf-lbl">Done:</span><span class="gf-sval" style="color:var(--green)" id="qg-done">0</span><span class="gf-lbl">/144</span>
       <span class="gf-lbl">Skip:</span><span class="gf-sval" style="color:var(--red)" id="qg-skipped">0</span>
+      <span class="gf-lbl">Rec:</span><span class="gf-sval" style="color:var(--amber)" id="qg-rec">0</span>
     </div>
 
     <!-- advanced (collapsed) -->
@@ -2397,7 +2398,7 @@ function gsRenderCanvas(){
     if(gsEditMode){ stroke='#bc8cff'; strokeW=1.5; }
 
     // recorded points: amber background
-    if(p.recX!==undefined && !isCurrent){
+    if((p.recX!==undefined || p.recDx!==undefined) && !isCurrent){
       fill='#2a2510'; stroke='#d29922'; strokeW=2;
     }
 
@@ -2831,9 +2832,15 @@ async function gsMoveToPoint(ptIdx){
   document.getElementById('gf-cur-lbl').textContent=gsSeqNum(p.col,p.row)+' ('+p.col+','+p.row+')';
   document.getElementById('gf-cur-x').textContent=p.x?p.x.toFixed(3):'0';
   document.getElementById('gf-cur-y').textContent=p.y?p.y.toFixed(3):'0';
-  const xMM = gsUnitToMM(p.x);
-  const yMM = gsUnitToMM(p.y);
+  // apply recorded delta correction if available (recDx, recDy in µm)
+  const effX = p.x + (p.recDx!==undefined ? p.recDx : 0);
+  const effY = p.y + (p.recDy!==undefined ? p.recDy : 0);
+  const xMM = gsUnitToMM(effX);
+  const yMM = gsUnitToMM(effY);
   const unit = document.getElementById('gs-unit')?document.getElementById('gs-unit').value:'um';
+  if(p.recDx!==undefined){
+    lg('info','GS','Using recorded delta correction: ('+p.recDx.toFixed(3)+','+p.recDy.toFixed(3)+') µm');
+  }
 
   gsWaitingForONT = true;
 
@@ -3661,7 +3668,7 @@ async function gsNextPoint(){
 function gsUpdateStatus(){
   const done=gsPoints.filter(p=>p.state===GS_FIBRE||p.state===GS_NOFIBRE).length;
   const skipped=gsPoints.filter(p=>p.state===GS_SKIPPED).length;
-  const recorded=gsPoints.filter(p=>p.recX!==undefined).length;
+  const recorded=gsPoints.filter(p=>p.recX!==undefined||p.recDx!==undefined).length;
   const el=document.getElementById('gf-done');
   if(el) el.textContent=done;
   const sk=document.getElementById('gf-skipped');
@@ -4367,8 +4374,10 @@ function qgUpdateOriginDisplay(){
 function qgUpdateStatus(){
   const done = gsPoints.filter(p=>p.state===GS_FIBRE||p.state===GS_NOFIBRE).length;
   const skipped = gsPoints.filter(p=>p.state===GS_SKIPPED).length;
+  const recorded = gsPoints.filter(p=>p.recDx!==undefined||p.recX!==undefined).length;
   const d=document.getElementById('qg-done'); if(d) d.textContent=done;
   const s=document.getElementById('qg-skipped'); if(s) s.textContent=skipped;
+  const r=document.getElementById('qg-rec'); if(r) r.textContent=recorded;
 }
 
 // ── step 1: connect ─────────────────────────────────────────
@@ -4520,7 +4529,13 @@ function qgFileChosen(evt){
       const col=parseInt(p[0]), row=parseInt(p[1]);
       const x=parseFloat(p[2]), y=parseFloat(p[3]);
       if(isNaN(col)||isNaN(row)||isNaN(x)||isNaN(y)) return;
-      parsed.push({col,row,x,y});
+      // optional 5th/6th columns: dX_um, dY_um (delta corrections)
+      let dx, dy;
+      if(p.length >= 6){
+        const pdx = parseFloat(p[4]), pdy = parseFloat(p[5]);
+        if(!isNaN(pdx) && !isNaN(pdy)){ dx = pdx; dy = pdy; }
+      }
+      parsed.push({col,row,x,y,dx,dy});
     });
     if(parsed.length === 0){
       lg('error','QG','No valid points in file'); return;
@@ -4608,25 +4623,34 @@ function qgPosUseCurrentOrigin(){
 }
 
 function qgApplyPositionFile(parsed){
-  // position files have coords in µm relative to origin — load directly
-  qgPixelData = null;  // not from pixel file, can't recalc
+  // position file: x,y = calculated offset in µm; optional dx,dy = recorded correction
+  qgPixelData = null;  // not from pixel file
   gsPoints = [];
-  // ensure 144 entries (use defaults for missing)
+  let recordedCount = 0;
   for(let row=0; row<ROWS; row++){
     for(let col=0; col<COLS; col++){
       const found = parsed.find(p=>p.col===col&&p.row===row);
       if(found){
-        gsPoints.push({col, row, x:found.x, y:found.y, state:GS_UNVISITED, note:''});
+        const pt = {col, row, x:found.x, y:found.y, state:GS_UNVISITED, note:''};
+        if(found.dx !== undefined && found.dy !== undefined){
+          pt.recDx = found.dx;
+          pt.recDy = found.dy;
+          recordedCount++;
+        }
+        gsPoints.push(pt);
       } else {
         gsPoints.push({col, row, x:0, y:0, state:GS_UNVISITED, note:''});
       }
     }
   }
   const u = document.getElementById('gs-unit'); if(u) u.value='um';
-  qgGeneratedFile = '';  // position file used directly, no generated file
+  qgGeneratedFile = '';
   gsRebuildOrder(); gsRenderCanvas(); qgRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
   qgUpdateFileDisplay();
   qgUpdateSteps();
+  if(recordedCount > 0){
+    lg('sys','QG','Loaded '+recordedCount+' recorded corrections from file');
+  }
 }
 
 function qgAutoExportTxt(){
@@ -4848,12 +4872,16 @@ function qgShowPointDetails(ptIdx){
   const p = gsPoints[ptIdx];
   const el = document.getElementById('qg-det-body');
   if(!el) return;
-  const xMM = gsUnitToMM(p.x);
-  const yMM = gsUnitToMM(p.y);
+  // apply delta correction for target preview
+  const effX = p.x + (p.recDx!==undefined ? p.recDx : 0);
+  const effY = p.y + (p.recDy!==undefined ? p.recDy : 0);
+  const xMM = gsUnitToMM(effX);
+  const yMM = gsUnitToMM(effY);
   const invX = gsInvertX(), invY = gsInvertY();
   const absX = gsOriginSet ? (gsOriginX + xMM*invX) : null;
   const absY = gsOriginSet ? (gsOriginY + yMM*invY) : null;
   const seq = gsSeqNum(p.col, p.row);
+  const hasDelta = (p.recDx !== undefined);
 
   // state badge color
   const stateBadge = (function(){
@@ -4868,9 +4896,14 @@ function qgShowPointDetails(ptIdx){
     '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Col, Row</span><span style="font-weight:600">'+p.col+', '+p.row+'</span></div>'+
     '<div style="display:flex;justify-content:space-between;margin-top:6px"><span style="color:var(--text2)">Offset X</span><span style="font-family:var(--mono);color:var(--amber)">'+p.x.toFixed(3)+' µm</span></div>'+
     '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Offset Y</span><span style="font-family:var(--mono);color:var(--amber)">'+p.y.toFixed(3)+' µm</span></div>'+
+    (hasDelta
+      ? '<div style="display:flex;justify-content:space-between;margin-top:4px"><span style="color:var(--text2)">Δ X</span><span style="font-family:var(--mono);color:var(--green)">'+p.recDx.toFixed(3)+' µm</span></div>'+
+        '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Δ Y</span><span style="font-family:var(--mono);color:var(--green)">'+p.recDy.toFixed(3)+' µm</span></div>'
+      : ''
+    )+
     (absX!==null
       ? '<div style="margin-top:8px;padding:6px;background:var(--bg3);border-radius:4px">'+
-        '<div style="font-size:9px;color:var(--text2);margin-bottom:2px">Will move to (with current origin):</div>'+
+        '<div style="font-size:9px;color:var(--text2);margin-bottom:2px">Will move to '+(hasDelta?'<span style="color:var(--green);font-weight:600">[corrected]</span>':'<span style="color:var(--blue)">[calculated]</span>')+':</div>'+
         '<div style="font-family:var(--mono);color:var(--blue);font-size:11px">X = '+absX.toFixed(6)+' mm</div>'+
         '<div style="font-family:var(--mono);color:var(--blue);font-size:11px">Y = '+absY.toFixed(6)+' mm</div>'+
         '</div>'
@@ -4895,37 +4928,53 @@ function qgShowPointDetails(ptIdx){
     // Record actual position
     '<div style="font-size:10px;color:var(--text2);margin-bottom:4px">Record actual stage position:</div>'+
     '<button class="gf-btn gf-blue" style="width:100%;padding:5px 0;font-size:11px" onclick="qgRecordPoint('+ptIdx+')">📍 Record Position (POS?)</button>'+
-    (p.recX!==undefined
+    (hasDelta
       ? '<div style="margin-top:6px;padding:6px;background:rgba(63,185,80,.1);border-radius:4px;font-size:10px;font-family:var(--mono)">'+
-        '<div style="color:var(--green);font-weight:600;margin-bottom:2px">✓ Recorded:</div>'+
-        '<div>X = '+p.recX.toFixed(3)+' µm</div>'+
-        '<div>Y = '+p.recY.toFixed(3)+' µm</div>'+
+        '<div style="color:var(--green);font-weight:600;margin-bottom:2px">✓ Recorded correction:</div>'+
+        '<div>Δ X = '+p.recDx.toFixed(3)+' µm</div>'+
+        '<div>Δ Y = '+p.recDy.toFixed(3)+' µm</div>'+
+        '<button class="gf-btn gf-ghost" style="width:100%;margin-top:4px;padding:2px;font-size:9px" onclick="qgClearRecord('+ptIdx+')">Clear correction</button>'+
         '</div>'
-      : '<div style="margin-top:4px;font-size:9px;color:var(--text2)">Not yet recorded</div>'
+      : '<div style="margin-top:4px;font-size:9px;color:var(--text2)">Not yet recorded — uses pure calculated position</div>'
     );
 }
 
-// QuickGrid: export only recorded positions as a new .txt file
+// QuickGrid: clear recorded correction for a point
+function qgClearRecord(ptIdx){
+  const p = gsPoints[ptIdx];
+  delete p.recDx; delete p.recDy;
+  // also clear old format if any
+  delete p.recX; delete p.recY;
+  gsRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
+  qgShowPointDetails(ptIdx);
+  lg('sys','QG','Cleared recorded correction for #'+gsSeqNum(p.col,p.row));
+}
+
+// QuickGrid: export full grid with calculated + delta corrections
 function qgExportRecorded(){
-  const recorded = gsPoints.filter(p=>p.recX!==undefined);
-  if(recorded.length === 0){
-    lg('error','QG','No recorded positions yet. Use "Record Position" on a point first.');
+  const recordedCount = gsPoints.filter(p=>p.recDx!==undefined).length;
+  if(gsPoints.length === 0){
+    lg('error','QG','No grid loaded — load a file first.');
     return;
   }
   let txt = '';
-  txt += '# DOTIFS QuickGrid Recorded Positions\n';
+  txt += '# DOTIFS QuickGrid Position File (with corrections)\n';
   const now = new Date();
   const ts = now.toISOString().slice(0,19).replace(/:/g,'').replace('T','_');
   txt += '# Date: ' + now.toISOString() + '\n';
   if(qgCurrentFile) txt += '# Source: ' + qgCurrentFile + '\n';
   txt += '# Origin_X: ' + gsOriginX.toFixed(6) + '\n';
   txt += '# Origin_Y: ' + gsOriginY.toFixed(6) + '\n';
-  txt += '# Recorded: ' + recorded.length + '/144\n';
-  txt += '# Format: col row X_um Y_um\n';
-  recorded.forEach(p=>{
-    txt += p.col + ' ' + p.row + ' ' + p.recX.toFixed(6) + ' ' + p.recY.toFixed(6) + '\n';
+  txt += '# Scale_um_per_px: ' + (qgScaleUsed||3.45) + '\n';
+  txt += '# Recorded: ' + recordedCount + '/' + gsPoints.length + '\n';
+  txt += '# Format: col row X_um Y_um dX_um dY_um\n';
+  txt += '# (dX_um/dY_um = correction from recording; NaN = not recorded, use calc as-is)\n';
+  gsPoints.forEach(p=>{
+    const dx = p.recDx!==undefined ? p.recDx.toFixed(6) : 'NaN';
+    const dy = p.recDy!==undefined ? p.recDy.toFixed(6) : 'NaN';
+    txt += p.col + ' ' + p.row + ' ' + p.x.toFixed(6) + ' ' + p.y.toFixed(6) + ' ' + dx + ' ' + dy + '\n';
   });
-  const fname = 'MLA_recorded_' + ts + '.txt';
+  const fname = 'MLA_quickgrid_' + ts + '.txt';
   const blob = new Blob([txt], {type:'text/plain'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4933,7 +4982,9 @@ function qgExportRecorded(){
   a.download = fname;
   a.click();
   URL.revokeObjectURL(url);
-  lg('sys','QG','Exported '+recorded.length+'/144 recorded positions: '+fname);
+  qgGeneratedFile = fname;
+  qgUpdateFileDisplay();
+  lg('sys','QG','Exported grid ('+recordedCount+'/'+gsPoints.length+' with corrections): '+fname);
 }
 
 // QuickGrid: reset (unload) grid with confirmation
@@ -4966,7 +5017,7 @@ function qgSetState(ptIdx, state){
   lg('sys','QG','Point #'+gsSeqNum(p.col,p.row)+' ('+p.col+','+p.row+'): state = '+state);
 }
 
-// QuickGrid: record current POS? as the recorded coord for this point
+// QuickGrid: record current position as delta from calculated for this point
 async function qgRecordPoint(ptIdx){
   if(!connected){ lg('error','ERR','Not connected'); return; }
   if(!gsOriginSet){ lg('error','QG','Origin not set — lock origin first'); return; }
@@ -4983,12 +5034,17 @@ async function qgRecordPoint(ptIdx){
   if(isNaN(posX) || isNaN(posY)){
     lg('error','QG','Failed to read POS? — cannot record'); return;
   }
-  // store as µm offset from origin
-  p.recX = (posX - gsOriginX) * 1000;
-  p.recY = (posY - gsOriginY) * 1000;
+  // compute current offset from origin (in µm)
+  const invX = gsInvertX(), invY = gsInvertY();
+  const curOffX = (posX - gsOriginX) * 1000 * invX;
+  const curOffY = (posY - gsOriginY) * 1000 * invY;
+  // delta = current offset - calculated offset (the fine-alignment correction)
+  p.recDx = curOffX - p.x;
+  p.recDy = curOffY - p.y;
   gsRenderCanvas(); gsUpdateStatus(); qgUpdateStatus(); gsAutoSave();
   qgShowPointDetails(ptIdx);
-  lg('sys','QG','Recorded #'+gsSeqNum(p.col,p.row)+': stage=('+posX.toFixed(6)+','+posY.toFixed(6)+') mm offset=('+p.recX.toFixed(3)+','+p.recY.toFixed(3)+') µm');
+  lg('sys','QG','Recorded #'+gsSeqNum(p.col,p.row)+': stage=('+posX.toFixed(6)+','+posY.toFixed(6)+') mm  '+
+    'delta=('+p.recDx.toFixed(3)+','+p.recDy.toFixed(3)+') µm from calc');
   // also update live display
   const lx = document.getElementById('qg-livex'); if(lx) lx.textContent = posX.toFixed(4);
   const ly = document.getElementById('qg-livey'); if(ly) ly.textContent = posY.toFixed(4);
