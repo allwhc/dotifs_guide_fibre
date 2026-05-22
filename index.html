@@ -1520,6 +1520,9 @@
       <button class="gf-btn" onclick="qgAckAllErrors()" style="background:var(--amber);color:#0e1117;border-color:var(--amber);padding:4px 12px"
               title="Read ERR? on all controllers, then send INI to clear any error state">⚠ Acknowledge All Errors</button>
 
+      <button class="gf-btn" onclick="qgResetGrid()" style="background:transparent;color:var(--red);border-color:var(--red);padding:4px 12px"
+              title="Unload grid and clear all state — origin remains locked">🗑 Reset Grid</button>
+
       <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
 
       <span class="gf-lbl">Origin:</span><span class="gf-sval" style="color:var(--purple)" id="qg-origin-disp">not set</span>
@@ -4268,6 +4271,8 @@ let qgPolling   = false;
 let qgPendingPt = -1;
 let qgCurrentFile = '';     // name of loaded file (original input)
 let qgGeneratedFile = '';   // name of auto-generated file (for pixel loads)
+let qgPixelData = null;     // raw pixel data {col,row,xPx,yPx}[] for recalc on origin change
+let qgScaleUsed = 3.45;     // scale factor used at load time
 
 function qgUpdateFileDisplay(){
   const el = document.getElementById('qg-file-disp');
@@ -4304,12 +4309,8 @@ function qgOnTabOpen(){
   qgUpdateOriginDisplay();
   qgUpdateFileDisplay();
 
-  // start polling live position
+  // no auto-polling — user clicks "Read" or actions trigger reads on demand
   if(qgPollTimer){ clearInterval(qgPollTimer); qgPollTimer=null; }
-  if(connected){
-    qgReadPos();
-    qgPollTimer = setInterval(qgReadPos, 1500);
-  }
 }
 
 // ── step indicator ──────────────────────────────────────────
@@ -4376,59 +4377,108 @@ async function qgConnect(){
   }
   await toggleConn();
   qgUpdateSteps();
+  // one-time read after connect (no auto-polling)
   if(connected){
-    qgReadPos();
-    if(qgPollTimer){ clearInterval(qgPollTimer); qgPollTimer=null; }
-    qgPollTimer = setInterval(qgReadPos, 1500);
+    setTimeout(qgReadPos, 500);
   }
 }
 
 // ── step 2: set origin ──────────────────────────────────────
 async function qgSetOrigin(){
   if(!connected){ lg('error','ERR','Connect first'); return; }
-  const xEl = document.getElementById('qg-livex');
-  const yEl = document.getElementById('qg-livey');
-  let xVal = xEl ? parseFloat(xEl.textContent) : NaN;
-  let yVal = yEl ? parseFloat(yEl.textContent) : NaN;
-  // if position not yet read, do a fresh read now
-  if(isNaN(xVal) || isNaN(yVal)){
-    lg('info','QG','Reading current position…');
-    await qgReadPos();
-    xVal = xEl ? parseFloat(xEl.textContent) : NaN;
-    yVal = yEl ? parseFloat(yEl.textContent) : NaN;
-  }
-  if(isNaN(xVal)||isNaN(yVal)){
-    lg('error','QG','Could not read live position — check connection and controller IDs'); return;
-  }
-  document.getElementById('qg-org-x').textContent = xVal.toFixed(4);
-  document.getElementById('qg-org-y').textContent = yVal.toFixed(4);
-  // show Move-to-Origin button and warning only if origin already set
+  // open prompt with placeholder and direct fresh read
+  document.getElementById('qg-org-x').textContent = 'reading…';
+  document.getElementById('qg-org-y').textContent = 'reading…';
   document.getElementById('qg-org-mvbtn').style.display = gsOriginSet ? '' : 'none';
   document.getElementById('qg-org-warn').style.display = gsOriginSet ? 'block' : 'none';
   document.getElementById('qg-origin-overlay').classList.add('show');
+
+  // do a direct fresh POS? read (bypass any stuck polling flag)
+  const xid = parseInt((document.getElementById('gs-x-id')||{}).value)||parseInt((document.getElementById('qg-x-id')||{}).value)||1;
+  const yid = parseInt((document.getElementById('gs-y-id')||{}).value)||parseInt((document.getElementById('qg-y-id')||{}).value)||2;
+  const ax  = ((document.getElementById('gs-axis-num')||{}).value||(document.getElementById('qg-axis')||{}).value||'1').trim();
+
+  try{
+    const rx = await scanQuery(xid+' POS? '+ax, 2000);
+    const ry = rx ? await (async()=>{ await new Promise(r=>setTimeout(r,120)); return scanQuery(yid+' POS? '+ax, 2000); })() : null;
+    const xVal = rx ? parseFloat(rx.includes('=')?rx.split('=').pop().trim():rx.trim()) : NaN;
+    const yVal = ry ? parseFloat(ry.includes('=')?ry.split('=').pop().trim():ry.trim()) : NaN;
+    if(isNaN(xVal) || isNaN(yVal)){
+      document.getElementById('qg-org-x').textContent = 'read failed';
+      document.getElementById('qg-org-y').textContent = 'read failed';
+      lg('error','QG','Could not read POS? — check controller IDs ('+xid+','+yid+') and connection');
+      return;
+    }
+    document.getElementById('qg-org-x').textContent = xVal.toFixed(4);
+    document.getElementById('qg-org-y').textContent = yVal.toFixed(4);
+    // also update the side panel live display
+    const lx = document.getElementById('qg-livex'); if(lx) lx.textContent = xVal.toFixed(4);
+    const ly = document.getElementById('qg-livey'); if(ly) ly.textContent = yVal.toFixed(4);
+  } catch(e){
+    document.getElementById('qg-org-x').textContent = 'error';
+    document.getElementById('qg-org-y').textContent = 'error';
+    lg('error','QG','Read error: '+e.message);
+  }
 }
 
 function qgConfirmLock(){
-  const xEl = document.getElementById('qg-org-x').textContent;
-  const yEl = document.getElementById('qg-org-y').textContent;
+  const xVal = parseFloat(document.getElementById('qg-org-x').textContent);
+  const yVal = parseFloat(document.getElementById('qg-org-y').textContent);
+  if(isNaN(xVal) || isNaN(yVal)){
+    lg('error','QG','Cannot lock — invalid position read. Try again.');
+    return;
+  }
   const wasSet = gsOriginSet;
   const prevX = gsOriginX, prevY = gsOriginY;
-  gsOriginX = parseFloat(xEl);
-  gsOriginY = parseFloat(yEl);
+  gsOriginX = xVal;
+  gsOriginY = yVal;
   gsOriginSet = true;
   jogUpdateOriginDisplay();
   qgUpdateOriginDisplay();
   gsAutoSave();
   lg('sys','QG','Origin locked: X='+gsOriginX.toFixed(4)+' Y='+gsOriginY.toFixed(4)+' mm');
-  // if a file was already loaded and origin changed, inform user
-  const fileLoaded = gsPoints.some(p=>!(p.col===0&&p.row===0)&&(p.x!==0||p.y!==0));
-  if(wasSet && fileLoaded && (prevX!==gsOriginX || prevY!==gsOriginY)){
-    lg('sys','QG','Origin changed (previous: X='+prevX.toFixed(4)+' Y='+prevY.toFixed(4)+
-      '). Loaded grid will now move relative to NEW origin. Stored offsets are unchanged.');
+
+  // if pixel data is available, recalculate the grid using new origin
+  if(qgPixelData && qgPixelData.length > 0){
+    qgRecalcFromPixelData();
+    lg('sys','QG','Grid recalculated from pixel data with new origin (scale '+qgScaleUsed+' µm/px)');
+  } else if(wasSet && (prevX!==gsOriginX || prevY!==gsOriginY)){
+    const fileLoaded = gsPoints.some(p=>!(p.col===0&&p.row===0)&&(p.x!==0||p.y!==0));
+    if(fileLoaded){
+      lg('sys','QG','Origin changed (previous: X='+prevX.toFixed(4)+' Y='+prevY.toFixed(4)+
+        '). Loaded grid will now move relative to NEW origin. Stored offsets are unchanged.');
+    }
   }
+
   document.getElementById('qg-origin-overlay').classList.remove('show');
   qgUpdateSteps();
   gsRenderCanvas();
+}
+
+// recalculate gsPoints from saved pixel data using current origin + scale
+function qgRecalcFromPixelData(){
+  if(!qgPixelData || qgPixelData.length === 0) return;
+  const scale = qgScaleUsed || 3.45;
+  const invX = document.getElementById('gs-invert-x')?.checked ? -1 : 1;
+  const invY = document.getElementById('gs-invert-y')?.checked ? -1 : 1;
+  const yMult = -1;  // image Y down → stage Y up
+  const p00 = qgPixelData.find(p=>p.col===0&&p.row===0);
+  const refX = p00 ? p00.xPx : 0;
+  const refY = p00 ? p00.yPx : 0;
+  // preserve existing states
+  const oldStates = {};
+  gsPoints.forEach(p=>{ oldStates[p.col+','+p.row] = {state:p.state, note:p.note, recX:p.recX, recY:p.recY}; });
+  gsPoints = [];
+  const sorted = [...qgPixelData].sort((a,b)=>a.row-b.row||a.col-b.col);
+  sorted.forEach(p=>{
+    const offUmX = (p.xPx - refX) * scale * invX;
+    const offUmY = (p.yPx - refY) * scale * yMult * invY;
+    const old = oldStates[p.col+','+p.row] || {};
+    gsPoints.push({col:p.col, row:p.row, x:offUmX, y:offUmY,
+                   state:old.state||GS_UNVISITED, note:old.note||'',
+                   recX:old.recX, recY:old.recY});
+  });
+  gsRebuildOrder(); gsRenderCanvas(); gsUpdateStatus(); gsAutoSave();
 }
 
 async function qgGoToOrigin(){
@@ -4499,6 +4549,8 @@ function qgFileChosen(evt){
 
 function qgLoadPixelFile(parsed){
   const scale = 3.45;
+  qgPixelData = parsed.map(p=>({col:p.col,row:p.row,xPx:p.x,yPx:p.y}));
+  qgScaleUsed = scale;
   const invX = document.getElementById('gs-invert-x')?.checked ? -1 : 1;
   const invY = document.getElementById('gs-invert-y')?.checked ? -1 : 1;
   // default for QuickGrid: image Y goes down, so invert Y
@@ -4554,6 +4606,7 @@ function qgPosUseCurrentOrigin(){
 
 function qgApplyPositionFile(parsed){
   // position files have coords in µm relative to origin — load directly
+  qgPixelData = null;  // not from pixel file, can't recalc
   gsPoints = [];
   // ensure 144 entries (use defaults for missing)
   for(let row=0; row<ROWS; row++){
