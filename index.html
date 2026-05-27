@@ -1052,6 +1052,7 @@
     <button class="h-tab"        id="tab-monitor" onclick="switchTab('monitor')">Live Dashboard</button>
     <button class="h-tab"        id="tab-grid"    onclick="gsCheckPassword()">Grid Scan 🔒</button>
     <button class="h-tab"        id="tab-quick"   onclick="switchTab('quick')">⚡ QuickGrid</button>
+    <button class="h-tab"        id="tab-about"   onclick="switchTab('about')">ℹ About</button>
   </div>
   <div class="hdr-right">
     <select id="baud">
@@ -1639,6 +1640,94 @@
     </div>
 
   </div><!-- end quick-full -->
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ABOUT PANEL                                                -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="about-full" style="display:none;flex:1;flex-direction:column;overflow:auto;background:var(--bg);">
+    <div style="max-width:780px;margin:0 auto;padding:32px 24px;width:100%">
+
+      <h1 style="font-family:Arial,sans-serif;font-size:28px;color:var(--blue);margin-bottom:6px;letter-spacing:.04em">
+        DOTIFS Fibre Positioning System
+      </h1>
+      <div style="font-size:14px;color:var(--text2);margin-bottom:24px">
+        Devasthal Optical Telescope Integral Field Spectrograph
+      </div>
+
+      <!-- About the project -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">
+          About the Project
+        </div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text)">
+          The DOTIFS instrument requires precise insertion of optical fibres into a Micro-Lens Array (MLA)
+          arranged as a 12 x 12 hex-staggered grid of 144 holes. Each fibre must be guided into its
+          designated hole with micrometer-level accuracy to ensure correct light coupling for
+          astronomical spectroscopic observations at the Devasthal Optical Telescope.
+        </div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text);margin-top:10px">
+          This application provides a unified interface to drive PI (Physik Instrumente) precision
+          linear stages, navigate the MLA grid visually, fine-align each fibre under the microscope,
+          and track the placement status of all 144 fibres. Calculated positions can be combined
+          with operator-recorded corrections to compensate for small physical imperfections in the
+          MLA, and saved as reusable position files for identical assemblies.
+        </div>
+      </div>
+
+      <!-- Features -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">
+          Key Features
+        </div>
+        <ul style="font-size:13px;line-height:1.8;color:var(--text);padding-left:20px;margin:0">
+          <li>Direct stage control with sub-micrometer positioning resolution</li>
+          <li>Live monitoring dashboard for all connected controllers</li>
+          <li>Grid Scan and QuickGrid workflows for manual and guided operation</li>
+          <li>Pixel-to-micrometer conversion from image-processing centroid files</li>
+          <li>Origin locking with operator-recorded fine-alignment corrections</li>
+          <li>Reusable position files with calculated values and recorded deltas</li>
+          <li>Error acknowledgement and emergency stop controls</li>
+          <li>Hex-staggered visual grid matching the physical MLA geometry</li>
+        </ul>
+      </div>
+
+      <!-- Credits -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px">
+          Credits
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:2px">System Design & Development</div>
+            <div style="font-size:16px;font-weight:600;color:var(--blue)">Vishal Jain</div>
+            <div style="font-size:12px;color:var(--text2);font-style:italic">Project Engineer - I</div>
+          </div>
+
+          <div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:2px">Project Coordinator</div>
+            <div style="font-size:16px;font-weight:600;color:var(--purple)">Deepa Modi</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:18px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">
+          Status
+        </div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
+          <div><span style="color:var(--text2)">Phase:</span> <span style="color:var(--amber);font-weight:600">Prototype / Testing</span></div>
+          <div><span style="color:var(--text2)">Version:</span> <span style="color:var(--text);font-family:var(--mono)">2026.05</span></div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:var(--text2);text-align:center;margin-top:24px">
+        © 2026 — Devasthal Optical Telescope Integral Field Spectrograph (DOTIFS)
+      </div>
+
+    </div>
+  </div><!-- end about-full -->
 
   <!-- QuickGrid Set Origin confirm overlay -->
   <div class="jog-overlay" id="qg-origin-overlay">
@@ -4225,10 +4314,11 @@ function switchTab(name){
   const gf     = document.getElementById('grid-full');
   const db     = document.getElementById('panel-monitor');
   const qg     = document.getElementById('quick-full');
+  const ab     = document.getElementById('about-full');
   const footer = document.querySelector('footer');
 
   // reset all panels
-  ['cmds','monitor','grid','quick'].forEach(t=>{
+  ['cmds','monitor','grid','quick','about'].forEach(t=>{
     const tb = document.getElementById('tab-'+t);
     if(tb) tb.classList.toggle('active', t===name);
   });
@@ -4239,6 +4329,7 @@ function switchTab(name){
   if(gf)     gf.style.display     = 'none';
   if(db)     db.style.display     = 'none';
   if(qg)     qg.style.display     = 'none';
+  if(ab)     ab.style.display     = 'none';
   if(footer) footer.style.display = 'none';
   document.body.style.gridTemplateColumns = '0 1fr';
 
@@ -4264,6 +4355,9 @@ function switchTab(name){
     // Tab 4: QuickGrid
     if(qg) qg.style.display = 'flex';
     setTimeout(qgOnTabOpen, 30);
+  } else if(name==='about'){
+    // Tab 5: About
+    if(ab) ab.style.display = 'flex';
   }
 
   // stop dashboard polling when leaving monitor tab
