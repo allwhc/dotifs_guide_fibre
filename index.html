@@ -1518,8 +1518,11 @@
 
       <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
 
-      <button class="gf-btn" onclick="qgAckAllErrors()" style="background:var(--amber);color:#0e1117;border-color:var(--amber);padding:4px 12px"
-              title="Read ERR? on all controllers, then send INI to clear any error state">⚠ Acknowledge All Errors</button>
+      <button class="gf-btn" onclick="qgClearErrorsOnly()" style="background:var(--amber);color:#0e1117;border-color:var(--amber);padding:4px 12px"
+              title="Read ERR? on both controllers — the read clears the error register. No INI, no motion.">⚠ Clear Errors Only</button>
+
+      <button class="gf-btn" onclick="qgAckAllErrors()" style="background:transparent;color:var(--amber);border-color:var(--amber);padding:4px 12px"
+              title="Full recovery: ERR? → SVO 0 → INI → SVO 1 on each controller. Re-initializes (no FRF, so no homing motion).">⚠ Recover (INI)</button>
 
       <button class="gf-btn gf-green" onclick="qgExportRecorded()" style="padding:4px 12px"
               title="Download a new position file using only the recorded positions">📤 Export Recorded</button>
@@ -4781,25 +4784,50 @@ async function qgApplySpeed(){
   await gsApplyVelocity();
 }
 
-// ── acknowledge errors ──────────────────────────────────────
+// ── clear errors only (no INI, no motion) ───────────────────
+// Reading ERR? clears the controller's error register — this is the
+// gentlest acknowledge: no INI (so no re-init), no SVO/FRF (so no motion).
+async function qgClearErrorsOnly(){
+  if(!connected){ lg('error','ERR','Not connected'); return; }
+  const xid = parseInt(document.getElementById('gs-x-id').value)||1;
+  const yid = parseInt(document.getElementById('gs-y-id').value)||2;
+  lg('info','QG','Clearing errors (ERR? read only) on X (ctrl '+xid+') and Y (ctrl '+yid+')…');
+  for(const id of [xid, yid]){
+    const r = await scanQuery(id+' ERR?', 1000);
+    const code = r ? (r.includes('=')?r.split('=').pop().trim():r.trim()) : '?';
+    lg('info','QG','Controller '+id+' ERR? = '+code+(code==='0'?' (clear)':' (cleared by read)'));
+  }
+  lg('sys','QG','Errors cleared (no INI, no motion)');
+}
+
+// ── acknowledge errors (full recovery, no homing) ───────────
+// ERR? → SVO 0 → INI → SVO 1 per controller. INI re-initializes the axis,
+// which alone leaves it in error 5 (PI_CNTR_MOVE_WITHOUT_REF_OR_NO_SERVO:
+// move attempted on unreferenced axis / servo off). Re-enabling the servo
+// (SVO 1) clears the "no servo" condition. FRF is intentionally omitted
+// because it would physically home the stage and lose the current position.
 async function qgAckAllErrors(){
   if(!connected){ lg('error','ERR','Not connected'); return; }
   const xid = parseInt(document.getElementById('gs-x-id').value)||1;
   const yid = parseInt(document.getElementById('gs-y-id').value)||2;
   const ax  = document.getElementById('gs-axis-num').value.trim()||'1';
-  lg('info','QG','Acknowledging all errors on X (ctrl '+xid+') and Y (ctrl '+yid+')…');
+  lg('info','QG','Recovering errors on X (ctrl '+xid+') and Y (ctrl '+yid+')…');
   for(const id of [xid, yid]){
     const r = await scanQuery(id+' ERR?', 1000);
     const code = r ? (r.includes('=')?r.split('=').pop().trim():r.trim()) : '?';
     lg('info','QG','Controller '+id+' ERR? = '+code);
     if(code !== '0'){
-      // try INI to clear
+      // SVO 0 → INI → SVO 1  (re-init then re-enable servo; no FRF = no homing)
+      await send(id+' SVO '+ax+' 0');
+      await new Promise(r=>setTimeout(r,150));
       await send(id+' INI '+ax);
       await new Promise(r=>setTimeout(r,300));
-      lg('sys','QG','Sent INI to ctrl '+id+' (was error '+code+')');
+      await send(id+' SVO '+ax+' 1');
+      await new Promise(r=>setTimeout(r,150));
+      lg('sys','QG','Recovered ctrl '+id+' (was error '+code+'): SVO 0 → INI → SVO 1');
     }
   }
-  lg('sys','QG','Error acknowledge complete');
+  lg('sys','QG','Error recovery complete');
 }
 
 // ── live position polling ───────────────────────────────────
